@@ -1,0 +1,765 @@
+---
+title: "Real Data Applications: Norwegian Infant Gut Microbiome Data"
+author: 
+  - Huang Lin$^1$
+  - $^1$NICHD, 6710B Rockledge Dr, Bethesda, MD 20892
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document: 
+    toc: true
+    theme: united
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, 
+                      message = FALSE, comment = NA,
+                      fig.width = 6.25, fig.height = 5)
+
+library(tidyverse)
+library(randomcoloR)
+library(ggpubr)
+library(tidygraph)
+library(openxlsx)
+library(energy)
+library(DT)
+options(DT.options = list(
+  initComplete = JS("function(settings, json) {",
+  "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});","}")))
+
+get_upper_tri = function(cormat){
+    cormat[lower.tri(cormat)] = NA
+    diag(cormat) = NA
+    return(cormat)
+}
+```
+
+# 1. Data summary {.tabset}
+
+## Sample size
+
+```{r}
+qc_sample = read_rds("../data/nomic/qc/df_sample.rds")
+colnames(qc_sample) = c("Day 30", "Day 120", "Day 365")
+
+datatable(qc_sample)
+```
+
+## Phylum prevalence
+
+```{r}
+qc_phylum = read_rds("../data/nomic/qc/qc_phylum.rds") %>%
+  mutate_if(is.numeric, function(x) round(x, 2)) %>%
+  arrange(phylum)
+colnames(qc_phylum) = c("Phylum", "Day 30", "Day 120", "Day 365")
+
+datatable(qc_phylum)
+```
+
+## Family prevalence
+
+```{r}
+qc_family = read_rds("../data/nomic/qc/qc_family.rds") %>%
+  mutate_if(is.numeric, function(x) round(x, 2)) %>%
+  arrange(family)
+colnames(qc_family) = c("Family", "Day 30", "Day 120", "Day 365")
+
+datatable(qc_family)
+```
+
+# 2. Phylum level
+
+## 2.1 Data import
+
+```{r}
+# Linear relationships
+phylum_linear_time_30 = read_rds("../data/nomic/phylum/linear_phy_30.rds")
+phylum_linear_time_120 = read_rds("../data/nomic/phylum/linear_phy_120.rds")
+phylum_linear_time_365 = read_rds("../data/nomic/phylum/linear_phy_365.rds")
+corr_phylum_linear_time_30 = phylum_linear_time_30$corr
+corr_phylum_linear_time_120 = phylum_linear_time_120$corr
+corr_phylum_linear_time_365 = phylum_linear_time_365$corr
+p_phylum_linear_time_30 = phylum_linear_time_30$corr_p
+p_phylum_linear_time_120 = phylum_linear_time_120$corr_p
+p_phylum_linear_time_365 = phylum_linear_time_365$corr_p
+cooccur_phylum_30 = phylum_linear_time_30$mat_cooccur
+cooccur_phylum_120 = phylum_linear_time_120$mat_cooccur
+cooccur_phylum_365 = phylum_linear_time_365$mat_cooccur
+
+# Filter by p-values
+alpha = 0.05
+corr_phylum_linear_time_30[p_phylum_linear_time_30 >= alpha] = 0
+corr_phylum_linear_time_120[p_phylum_linear_time_120 >= alpha] = 0
+corr_phylum_linear_time_365[p_phylum_linear_time_365 >= alpha] = 0
+
+# Filter by correlation coefficients
+th = 0.1
+corr_phylum_linear_time_30[abs(corr_phylum_linear_time_30) < th] = 0
+corr_phylum_linear_time_120[abs(corr_phylum_linear_time_120) < th] = 0
+corr_phylum_linear_time_365[abs(corr_phylum_linear_time_365) < th] = 0
+
+# Filter by co-occurrence
+overlap = 10
+corr_phylum_linear_time_30[cooccur_phylum_30 < overlap] = 0
+corr_phylum_linear_time_120[cooccur_phylum_120 < overlap] = 0
+corr_phylum_linear_time_365[cooccur_phylum_365 < overlap] = 0
+
+# Sort row and columns
+corr_phylum_linear_time_30 = corr_phylum_linear_time_30[sort(rownames(corr_phylum_linear_time_30)),
+                                                        sort(colnames(corr_phylum_linear_time_30))]
+corr_phylum_linear_time_120 = corr_phylum_linear_time_120[sort(rownames(corr_phylum_linear_time_120)),
+                                                          sort(colnames(corr_phylum_linear_time_120))]
+corr_phylum_linear_time_365 = corr_phylum_linear_time_365[sort(rownames(corr_phylum_linear_time_365)),
+                                                          sort(colnames(corr_phylum_linear_time_365))]
+
+df_phylum_linear = data.frame(get_upper_tri(corr_phylum_linear_time_30)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  mutate(day = "Day 30") %>%
+  bind_rows(
+    data.frame(get_upper_tri(corr_phylum_linear_time_120)) %>%
+    rownames_to_column("var1") %>%
+    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+    mutate(day = "Day 120")
+  ) %>%
+  bind_rows(
+    data.frame(get_upper_tri(corr_phylum_linear_time_365)) %>%
+    rownames_to_column("var1") %>%
+    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+    mutate(day = "Day 365")
+  ) %>%
+  filter(!is.na(value)) %>%
+  mutate(value = round(value, 2),
+         metric = "Linear")
+
+# Distance relationships
+phylum_dist_time_30 = read_rds("../data/nomic/phylum/dist_phy_30.rds")
+phylum_dist_time_120 = read_rds("../data/nomic/phylum/dist_phy_120.rds")
+phylum_dist_time_365 = read_rds("../data/nomic/phylum/dist_phy_365.rds")
+corr_phylum_dist_time_30 = phylum_dist_time_30$dcorr
+corr_phylum_dist_time_120 = phylum_dist_time_120$dcorr
+corr_phylum_dist_time_365 = phylum_dist_time_365$dcorr
+p_phylum_dist_time_30 = phylum_dist_time_30$dcorr_p
+p_phylum_dist_time_120 = phylum_dist_time_120$dcorr_p
+p_phylum_dist_time_365 = phylum_dist_time_365$dcorr_p
+
+# Filter by p-values
+alpha = 0.05
+corr_phylum_dist_time_30[p_phylum_dist_time_30 >= alpha] = 0
+corr_phylum_dist_time_120[p_phylum_dist_time_120 >= alpha] = 0
+corr_phylum_dist_time_365[p_phylum_dist_time_365 >= alpha] = 0
+
+# Filter by correlation coefficients
+th = 0.1
+corr_phylum_dist_time_30[abs(corr_phylum_dist_time_30) < th] = 0
+corr_phylum_dist_time_120[abs(corr_phylum_dist_time_120) < th] = 0
+corr_phylum_dist_time_365[abs(corr_phylum_dist_time_365) < th] = 0
+
+# Filter by co-occurrence
+overlap = 10
+corr_phylum_dist_time_30[cooccur_phylum_30 < overlap] = 0
+corr_phylum_dist_time_120[cooccur_phylum_120 < overlap] = 0
+corr_phylum_dist_time_365[cooccur_phylum_365 < overlap] = 0
+
+# Sort row and columns
+corr_phylum_dist_time_30 = corr_phylum_dist_time_30[sort(rownames(corr_phylum_dist_time_30)),
+                                                    sort(colnames(corr_phylum_dist_time_30))]
+corr_phylum_dist_time_120 = corr_phylum_dist_time_120[sort(rownames(corr_phylum_dist_time_120)),
+                                                      sort(colnames(corr_phylum_dist_time_120))]
+corr_phylum_dist_time_365 = corr_phylum_dist_time_365[sort(rownames(corr_phylum_dist_time_365)),
+                                                      sort(colnames(corr_phylum_dist_time_365))]
+
+df_phylum_dist = data.frame(get_upper_tri(corr_phylum_dist_time_30)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  mutate(day = "Day 30") %>%
+  bind_rows(
+    data.frame(get_upper_tri(corr_phylum_dist_time_120)) %>%
+    rownames_to_column("var1") %>%
+    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+    mutate(day = "Day 120")
+  ) %>%
+  bind_rows(
+    data.frame(get_upper_tri(corr_phylum_dist_time_365)) %>%
+    rownames_to_column("var1") %>%
+    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+    mutate(day = "Day 365")
+  ) %>%
+  filter(!is.na(value)) %>%
+  mutate(value = round(value, 2),
+         metric = "Distance")
+
+# Merge datasets
+df_phylum = df_phylum_linear %>%
+  bind_rows(
+    df_phylum_dist
+  )
+phy_level = sort(union(df_phylum$var1, df_phylum$var2))
+df_phylum$var1 = factor(df_phylum$var1, levels = phy_level)
+df_phylum$var2 = factor(df_phylum$var2, levels = phy_level)
+df_phylum$day = factor(df_phylum$day, levels = c("Day 30", "Day 120", "Day 365"))
+df_phylum$metric = factor(df_phylum$metric, levels = c("Linear", "Distance"))
+
+# Bias corrected abundances
+y_phylum_all = read_rds("../data/nomic/phylum/y_hat_phylum.rds")
+y_phylum_time_30_all = exp(y_phylum_all$day30)
+y_phylum_time_120_all = exp(y_phylum_all$day120)
+y_phylum_time_365_all = exp(y_phylum_all$day365)
+
+phylum_keep_time_30 = rownames(phylum_linear_time_30$y_hat)
+phylum_keep_time_120 = rownames(phylum_linear_time_120$y_hat)
+phylum_keep_time_365 = rownames(phylum_linear_time_365$y_hat)
+
+ind30 = which(rownames(y_phylum_time_30_all) %in% phylum_keep_time_30)
+y_phylum_time_30 = as.data.frame(y_phylum_time_30_all[ind30, ]) %>%
+  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_phylum_time_30_all[-ind30, ], na.rm = TRUE)))))
+
+ind120 = which(rownames(y_phylum_time_120_all) %in% phylum_keep_time_120)
+y_phylum_time_120 = as.data.frame(y_phylum_time_120_all[ind120, ]) %>%
+  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_phylum_time_120_all[-ind120, ], na.rm = TRUE)))))
+
+ind365 = which(rownames(y_phylum_time_365_all) %in% phylum_keep_time_365)
+y_phylum_time_365 = as.data.frame(y_phylum_time_365_all[ind365, ]) %>%
+  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_phylum_time_365_all[-ind365, ], na.rm = TRUE)))))
+```
+
+## 2.2 Visualization {.tabset}
+
+### Correlation coefficients
+
+```{r, fig.height=10, fig.width=13}
+p_phylum_corr = df_phylum %>%
+  ggplot(aes(var2, var1, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE) +
+  scale_y_discrete(drop = FALSE) +
+  facet_grid(metric~day) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 5) +
+  labs(x = NULL, y = NULL, title = NULL) +
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),
+        axis.text.y = element_text(size = 12),
+        strip.text.x = element_text(size = 14),
+        strip.text.y = element_text(size = 14),
+        legend.text = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = "top") +
+  coord_fixed()
+
+p_phylum_corr
+```
+
+### Mean abundances
+
+```{r, fig.height=5, fig.width=10}
+df_abn_phylum = y_phylum_time_30 %>%
+  mutate_if(is.numeric, ~replace_na(., 0)) %>%
+  mutate(ave = rowMeans(across(everything())),
+         day = "30") %>%
+  select(ave, day) %>%
+  rownames_to_column("phylum") %>%
+  bind_rows(
+    y_phylum_time_120 %>%
+      mutate_if(is.numeric, ~replace_na(., 0)) %>%
+      mutate(ave = rowMeans(across(everything())),
+             day = "120") %>%
+      select(ave, day) %>%
+      rownames_to_column("phylum")
+  ) %>%
+  bind_rows(
+    y_phylum_time_365 %>%
+      mutate_if(is.numeric, ~replace_na(., 0)) %>%
+      mutate(ave = rowMeans(across(everything())),
+             day = "365") %>%
+      select(ave, day) %>%
+      rownames_to_column("phylum")
+  ) %>%
+  filter(phylum != "Others")
+df_abn_phylum$phylum = factor(df_abn_phylum$phylum, levels = phy_level)
+df_abn_phylum$day = factor(df_abn_phylum$day, levels = c("30", "120", "365"))
+
+p_phylum_abn = df_abn_phylum %>%
+  ggplot(aes(x = day, y = ave, fill = phylum)) +
+  geom_bar(position = "dodge", stat = "identity") +
+  labs(x = "Day", y = "Abundance") +
+  scale_fill_brewer(name = NULL, palette = "Set1", drop = FALSE) +
+  scale_x_discrete(drop = FALSE) +
+  facet_wrap(.~phylum, nrow = 2, scales = "free") +
+  theme_bw()
+p_phylum_abn
+```
+
+### Mean relative abundance
+
+```{r}
+df_rel_phylum = y_phylum_time_30 %>%
+  mutate_if(is.numeric, ~replace_na(., 0)) %>%
+  mutate(total = rowSums(across(everything())),
+         day = "30",
+         prop = total/sum(total)) %>%
+  select(prop, day) %>%
+  rownames_to_column("phylum") %>%
+  bind_rows(
+    y_phylum_time_120 %>%
+      mutate_if(is.numeric, ~replace_na(., 0)) %>%
+      mutate(total = rowSums(across(everything())),
+             day = "120",
+             prop = total/sum(total)) %>%
+      select(prop, day) %>%
+      rownames_to_column("phylum")
+  ) %>%
+  bind_rows(
+    y_phylum_time_365 %>%
+      mutate_if(is.numeric, ~replace_na(., 0)) %>%
+      mutate(total = rowSums(across(everything())),
+             day = "365",
+             prop = total/sum(total)) %>%
+      select(prop, day) %>%
+      rownames_to_column("phylum")
+  )
+
+df_rel_phylum$phylum = factor(df_rel_phylum$phylum, levels = c(phy_level, "Others"))
+df_rel_phylum$day = factor(df_rel_phylum$day, levels = c("30", "120", "365"))
+p_phylum_rel = df_rel_phylum %>%
+  ggplot(aes(x = day, y = prop, fill = phylum)) +
+  geom_bar(position = "stack", stat = "identity") +
+  labs(x = "Day", y = "Relative Abundance") +
+  scale_fill_brewer(name = NULL, palette = "Set1") +
+  theme_bw()
+p_phylum_rel
+
+df_rel_phylum = df_rel_phylum %>%
+  mutate(prop = round(prop, 2)) %>%
+  pivot_wider(names_from = "day", values_from = "prop") %>%
+  arrange(phylum)
+datatable(df_rel_phylum)
+
+# Combine abundance and relative abundance plots
+p_phylum_abn = p_phylum_abn + 
+  theme(legend.position = "none") +
+  labs(x = NULL)
+p_phylum_combine = ggarrange(p_phylum_abn, p_phylum_rel, nrow = 2,
+                             heights = c(1, 1.5), labels = c("a", "b"))
+
+ggsave(plot = p_phylum_combine, "../images/supp/supp_nomic_count_phylum.pdf", 
+       height = 8, width = 10)   
+ggsave(plot = p_phylum_combine, "../images/supp/supp_nomic_count_phylum.jpeg", 
+       height = 8, width = 10, dpi = 300)
+```
+
+# 3. Family level
+
+## 3.1 Data import
+
+```{r}
+# Linear relationships
+family_linear_time_30 = read_rds("../data/nomic/family/linear_fam_30.rds")
+family_linear_time_120 = read_rds("../data/nomic/family/linear_fam_120.rds")
+family_linear_time_365 = read_rds("../data/nomic/family/linear_fam_365.rds")
+corr_family_linear_time_30 = family_linear_time_30$corr
+corr_family_linear_time_120 = family_linear_time_120$corr
+corr_family_linear_time_365 = family_linear_time_365$corr
+p_family_linear_time_30 = family_linear_time_30$corr_p
+p_family_linear_time_120 = family_linear_time_120$corr_p
+p_family_linear_time_365 = family_linear_time_365$corr_p
+cooccur_family_30 = family_linear_time_30$mat_cooccur
+cooccur_family_120 = family_linear_time_120$mat_cooccur
+cooccur_family_365 = family_linear_time_365$mat_cooccur
+
+# Filter by p-values
+alpha = 0.05
+corr_family_linear_time_30[p_family_linear_time_30 >= alpha] = 0
+corr_family_linear_time_120[p_family_linear_time_120 >= alpha] = 0
+corr_family_linear_time_365[p_family_linear_time_365 >= alpha] = 0
+
+# Filter by correlation coefficients
+th = 0.1
+corr_family_linear_time_30[abs(corr_family_linear_time_30) < th] = 0
+corr_family_linear_time_120[abs(corr_family_linear_time_120) < th] = 0
+corr_family_linear_time_365[abs(corr_family_linear_time_365) < th] = 0
+
+# Filter by co-occurrence
+overlap = 10
+corr_family_linear_time_30[cooccur_family_30 < overlap] = 0
+corr_family_linear_time_120[cooccur_family_120 < overlap] = 0
+corr_family_linear_time_365[cooccur_family_365 < overlap] = 0
+
+# Sort row and columns
+corr_family_linear_time_30 = corr_family_linear_time_30[sort(rownames(corr_family_linear_time_30)),
+                                                        sort(colnames(corr_family_linear_time_30))]
+corr_family_linear_time_120 = corr_family_linear_time_120[sort(rownames(corr_family_linear_time_120)),
+                                                          sort(colnames(corr_family_linear_time_120))]
+corr_family_linear_time_365 = corr_family_linear_time_365[sort(rownames(corr_family_linear_time_365)),
+                                                          sort(colnames(corr_family_linear_time_365))]
+
+df_family_linear = data.frame(get_upper_tri(corr_family_linear_time_30)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  mutate(day = "Day 30") %>%
+  bind_rows(
+    data.frame(get_upper_tri(corr_family_linear_time_120)) %>%
+    rownames_to_column("var1") %>%
+    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+    mutate(day = "Day 120")
+  ) %>%
+  bind_rows(
+    data.frame(get_upper_tri(corr_family_linear_time_365)) %>%
+    rownames_to_column("var1") %>%
+    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+    mutate(day = "Day 365")
+  ) %>%
+  filter(!is.na(value)) %>%
+  mutate(value = round(value, 2),
+         metric = "Linear")
+
+# Distance relationships
+family_dist_time_30 = read_rds("../data/nomic/family/dist_fam_30.rds")
+family_dist_time_120 = read_rds("../data/nomic/family/dist_fam_120.rds")
+family_dist_time_365 = read_rds("../data/nomic/family/dist_fam_365.rds")
+corr_family_dist_time_30 = family_dist_time_30$dcorr
+corr_family_dist_time_120 = family_dist_time_120$dcorr
+corr_family_dist_time_365 = family_dist_time_365$dcorr
+p_family_dist_time_30 = family_dist_time_30$dcorr_p
+p_family_dist_time_120 = family_dist_time_120$dcorr_p
+p_family_dist_time_365 = family_dist_time_365$dcorr_p
+
+# Filter by p-values
+alpha = 0.05
+corr_family_dist_time_30[p_family_dist_time_30 >= alpha] = 0
+corr_family_dist_time_120[p_family_dist_time_120 >= alpha] = 0
+corr_family_dist_time_365[p_family_dist_time_365 >= alpha] = 0
+
+# Filter by correlation coefficients
+th = 0.1
+corr_family_dist_time_30[abs(corr_family_dist_time_30) < th] = 0
+corr_family_dist_time_120[abs(corr_family_dist_time_120) < th] = 0
+corr_family_dist_time_365[abs(corr_family_dist_time_365) < th] = 0
+
+# Filter by co-occurrence
+overlap = 10
+corr_family_dist_time_30[cooccur_family_30 < overlap] = 0
+corr_family_dist_time_120[cooccur_family_120 < overlap] = 0
+corr_family_dist_time_365[cooccur_family_365 < overlap] = 0
+
+# Sort row and columns
+corr_family_dist_time_30 = corr_family_dist_time_30[sort(rownames(corr_family_dist_time_30)),
+                                                    sort(colnames(corr_family_dist_time_30))]
+corr_family_dist_time_120 = corr_family_dist_time_120[sort(rownames(corr_family_dist_time_120)),
+                                                      sort(colnames(corr_family_dist_time_120))]
+corr_family_dist_time_365 = corr_family_dist_time_365[sort(rownames(corr_family_dist_time_365)),
+                                                      sort(colnames(corr_family_dist_time_365))]
+
+df_family_dist = data.frame(get_upper_tri(corr_family_dist_time_30)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  mutate(day = "Day 30") %>%
+  bind_rows(
+    data.frame(get_upper_tri(corr_family_dist_time_120)) %>%
+    rownames_to_column("var1") %>%
+    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+    mutate(day = "Day 120")
+  ) %>%
+  bind_rows(
+    data.frame(get_upper_tri(corr_family_dist_time_365)) %>%
+    rownames_to_column("var1") %>%
+    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+    mutate(day = "Day 365")
+  ) %>%
+  filter(!is.na(value)) %>%
+  mutate(value = round(value, 2),
+         metric = "Distance")
+
+# Merge datasets
+df_family = df_family_linear %>%
+  bind_rows(
+    df_family_dist
+  )
+fam_level = sort(union(df_family$var1, df_family$var2))
+df_family$var1 = factor(df_family$var1, levels = fam_level)
+df_family$var2 = factor(df_family$var2, levels = fam_level)
+df_family$day = factor(df_family$day, levels = c("Day 30", "Day 120", "Day 365"))
+df_family$metric = factor(df_family$metric, levels = c("Linear", "Distance"))
+
+# Bias corrected abundances
+y_family_all = read_rds("../data/nomic/family/y_hat_family.rds")
+y_family_time_30_all = exp(y_family_all$day30)
+y_family_time_120_all = exp(y_family_all$day120)
+y_family_time_365_all = exp(y_family_all$day365)
+
+family_keep_time_30 = rownames(family_linear_time_30$y_hat)
+family_keep_time_120 = rownames(family_linear_time_120$y_hat)
+family_keep_time_365 = rownames(family_linear_time_365$y_hat)
+
+ind30 = which(rownames(y_family_time_30_all) %in% family_keep_time_30)
+y_family_time_30 = as.data.frame(y_family_time_30_all[ind30, ]) %>%
+  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_family_time_30_all[-ind30, ], na.rm = TRUE)))))
+
+ind120 = which(rownames(y_family_time_120_all) %in% family_keep_time_120)
+y_family_time_120 = as.data.frame(y_family_time_120_all[ind120, ]) %>%
+  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_family_time_120_all[-ind120, ], na.rm = TRUE)))))
+
+ind365 = which(rownames(y_family_time_365_all) %in% family_keep_time_365)
+y_family_time_365 = as.data.frame(y_family_time_365_all[ind365, ]) %>%
+  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_family_time_365_all[-ind365, ], na.rm = TRUE)))))
+```
+
+## 3.2 Visualization {.tabset}
+
+### Correlation coefficients
+
+```{r, fig.height=10, fig.width=13}
+p_family_corr = df_family %>%
+  ggplot(aes(var2, var1, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE) +
+  scale_y_discrete(drop = FALSE) +
+  facet_grid(metric~day) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = NULL) +
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1, 
+                               title.position = "top", title.hjust = 0.5)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),
+        axis.text.y = element_text(size = 12),
+        strip.text.x = element_text(size = 14),
+        strip.text.y = element_text(size = 14),
+        legend.text = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = "top") +
+  coord_fixed()
+
+p_family_corr
+ggsave(plot = p_family_corr, "../images/main/nomic_corr_family.pdf", height = 10, width = 13)   
+ggsave(plot = p_family_corr, "../images/main/nomic_corr_family.jpeg", height = 10, width = 13, dpi = 300)
+```
+
+### Mean abundances
+
+```{r, fig.height=5, fig.width=10}
+df_abn_family = y_family_time_30 %>%
+  mutate_if(is.numeric, ~replace_na(., 0)) %>%
+  mutate(ave = rowMeans(across(everything())),
+         day = "30") %>%
+  select(ave, day) %>%
+  rownames_to_column("family") %>%
+  bind_rows(
+    y_family_time_120 %>%
+      mutate_if(is.numeric, ~replace_na(., 0)) %>%
+      mutate(ave = rowMeans(across(everything())),
+             day = "120") %>%
+      select(ave, day) %>%
+      rownames_to_column("family")
+  ) %>%
+  bind_rows(
+    y_family_time_365 %>%
+      mutate_if(is.numeric, ~replace_na(., 0)) %>%
+      mutate(ave = rowMeans(across(everything())),
+             day = "365") %>%
+      select(ave, day) %>%
+      rownames_to_column("family")
+  ) %>%
+  filter(family != "Others")
+df_abn_family$family = factor(df_abn_family$family, levels = fam_level)
+df_abn_family$day = factor(df_abn_family$day, levels = c("30", "120", "365"))
+
+p_family_abn = df_abn_family %>%
+  ggplot(aes(x = day, y = ave, fill = family)) +
+  geom_bar(position = "dodge", stat = "identity") +
+  labs(x = "Day", y = "Abundance") +
+  scale_fill_brewer(name = NULL, palette = "Paired", drop = FALSE) +
+  scale_x_discrete(drop = FALSE) +
+  facet_wrap(.~family, nrow = 2, scales = "free") +
+  theme_bw()
+p_family_abn
+```
+
+### Mean relative abundance
+
+```{r}
+df_rel_family = y_family_time_30 %>%
+  mutate_if(is.numeric, ~replace_na(., 0)) %>%
+  mutate(total = rowSums(across(everything())),
+         day = "30",
+         prop = total/sum(total)) %>%
+  select(prop, day) %>%
+  rownames_to_column("family") %>%
+  bind_rows(
+    y_family_time_120 %>%
+      mutate_if(is.numeric, ~replace_na(., 0)) %>%
+      mutate(total = rowSums(across(everything())),
+             day = "120",
+             prop = total/sum(total)) %>%
+      select(prop, day) %>%
+      rownames_to_column("family")
+  ) %>%
+  bind_rows(
+    y_family_time_365 %>%
+      mutate_if(is.numeric, ~replace_na(., 0)) %>%
+      mutate(total = rowSums(across(everything())),
+             day = "365",
+             prop = total/sum(total)) %>%
+      select(prop, day) %>%
+      rownames_to_column("family")
+  )
+
+df_rel_family$family = factor(df_rel_family$family, levels = c(fam_level, "Others"))
+df_rel_family$day = factor(df_rel_family$day, levels = c("30", "120", "365"))
+p_family_rel = df_rel_family %>%
+  ggplot(aes(x = day, y = prop, fill = family)) +
+  geom_bar(position = "stack", stat = "identity") +
+  labs(x = "Day", y = "Relative Abundance") +
+  scale_fill_brewer(name = NULL, palette = "Paired") +
+  theme_bw()
+p_family_rel
+
+df_rel_family = df_rel_family %>%
+  mutate(prop = round(prop, 2)) %>%
+  pivot_wider(names_from = "day", values_from = "prop") %>%
+  arrange(family)
+datatable(df_rel_family)
+
+# Combine abundance and relative abundance plots
+p_family_abn = p_family_abn + 
+  theme(legend.position = "none") +
+  labs(x = NULL)
+p_family_combine = ggarrange(p_family_abn, p_family_rel, nrow = 2,
+                             heights = c(1, 1.5), labels = c("a", "b"))
+
+ggsave(plot = p_family_combine, "../images/main/nomic_count_family.pdf", 
+       height = 8, width = 10)   
+ggsave(plot = p_family_combine, "../images/main/nomic_count_family.jpeg", 
+       height = 8, width = 10, dpi = 300)
+```
+
+### Scatter plots
+
+```{r}
+df_res = df_family %>%
+  filter(value != 0) %>%
+  pivot_wider(names_from = "metric", values_from = "value") %>%
+  mutate(Linear = replace_na(Linear, 0),
+         Distance = replace_na(Distance, 0)) %>%
+  arrange(day, var1, var2)
+
+y_family_list = list(day30 = family_linear_time_30$y_hat, 
+                     day120 = family_linear_time_120$y_hat,
+                     day365 = family_linear_time_365$y_hat)
+
+scatter_family_time_30 = vector(mode = "list")
+scatter_family_time_120 = vector(mode = "list")
+scatter_family_time_365 = vector(mode = "list")
+ind1 = 1; ind2 = 1; ind3 = 1
+for (i in seq_along(df_res$var1)) {
+  day = as.character(df_res$day[i])
+  var1 = as.character(df_res$var1[i])
+  var2 = as.character(df_res$var2[i])
+  
+  if (day == "Day 30") {
+    df_y = y_family_list$day30
+    df_fig = data.frame(y = df_y[var1, ], x = df_y[var2, ])
+    
+    fig_scatter = df_fig %>%
+      ggplot(aes(x = x, y = y)) +
+      labs(x = var2, y = var1) +
+      geom_point() +
+      geom_smooth(method = "loess", formula = "y ~ x", se = FALSE, color = "red") +
+      geom_smooth(method = "lm", formula = "y ~ x", se = FALSE, color = "blue", linetype = "dashed") +
+      theme_bw()
+    scatter_family_time_30[[ind1]] = fig_scatter
+    ind1 = ind1 + 1
+  } else if (day == "Day 120") {
+    df_y = y_family_list$day120
+    df_fig = data.frame(y = df_y[var1, ], x = df_y[var2, ])
+    
+    fig_scatter = df_fig %>%
+      ggplot(aes(x = x, y = y)) +
+      labs(x = var2, y = var1) +
+      geom_point() +
+      geom_smooth(method = "loess", formula = "y ~ x", se = FALSE, color = "red") +
+      geom_smooth(method = "lm", formula = "y ~ x", se = FALSE, color = "blue", linetype = "dashed") +
+      theme_bw()
+    scatter_family_time_120[[ind2]] = fig_scatter
+    ind2 = ind2 + 1
+  } else {
+    df_y = y_family_list$day365
+    df_fig = data.frame(y = df_y[var1, ], x = df_y[var2, ])
+    
+    fig_scatter = df_fig %>%
+      ggplot(aes(x = x, y = y)) +
+      labs(x = var2, y = var1) +
+      geom_point() +
+      geom_smooth(method = "loess", formula = "y ~ x", se = FALSE, color = "red") +
+      geom_smooth(method = "lm", formula = "y ~ x", se = FALSE, color = "blue", linetype = "dashed") +
+      theme_bw()
+    scatter_family_time_365[[ind3]] = fig_scatter
+    ind3 = ind3 + 1
+  }
+}
+
+write.xlsx(df_res, "../outputs/nomic/secom_results.xlsx", overwrite = TRUE)
+
+pair_scatter_time_30 = ggarrange(plotlist = scatter_family_time_30)
+pair_scatter_time_120 = ggarrange(plotlist = scatter_family_time_120)
+pair_scatter_time_365 = ggarrange(plotlist = scatter_family_time_365)
+
+ggsave(plot = pair_scatter_time_30, "../images/supp/supp_nomic_scatter_family_30.pdf", 
+       height = 3, width = 6)   
+ggsave(plot = pair_scatter_time_30, "../images/supp/supp_nomic_scatter_family_30.jpeg", 
+       height = 3, width = 6, dpi = 300)
+
+ggsave(plot = pair_scatter_time_120, "../images/supp/supp_nomic_scatter_family_120.pdf", 
+       height = 3, width = 6)   
+ggsave(plot = pair_scatter_time_120, "../images/supp/supp_nomic_scatter_family_120.jpeg", 
+       height = 3, width = 6, dpi = 300)
+
+ggsave(plot = pair_scatter_time_365, "../images/supp/supp_nomic_scatter_family_365.pdf", 
+       height = 6, width = 6)   
+ggsave(plot = pair_scatter_time_365, "../images/supp/supp_nomic_scatter_family_365.jpeg", 
+       height = 6, width = 6, dpi = 300)
+
+# Example of nonlinear relationship
+df_y = y_family_list$day365
+df_fig = data.frame(y = df_y["Ruminococcaceae", ], x = df_y["Staphylococcaceae", ])
+df_fig_complete = df_fig[complete.cases(df_fig), ]
+df_ann = data.frame(x = -0.5, y = 5, 
+                    pcor = round(cor.test(df_fig$x, df_fig$y, method = "pearson")$estimate, 2),
+                    dcor = round(dcor(df_fig_complete$x, df_fig_complete$y), 2)) %>%
+  mutate(label = paste0("pCor = ", pcor, "\ndCor = ", dcor))
+
+fig_scatter = df_fig %>%
+  ggplot(aes(x = x, y = y)) +
+  labs(x = "Staphylococcaceae", y = "Ruminococcaceae") +
+  geom_point() +
+  geom_label(data = df_ann, aes(x = x, y = y, label = label),
+             color = "orange", size = 4, fontface = "bold") +
+  geom_smooth(method = "loess", formula = "y ~ x", se = FALSE, color = "red") +
+  geom_smooth(method = "lm", formula = "y ~ x", se = FALSE, color = "blue", linetype = "dashed") +
+  theme_bw()
+ggsave(plot = fig_scatter, "../images/supp/supp_nonlinear_example.pdf", height = 5, width = 6.25)
+ggsave(plot = fig_scatter, "../images/supp/supp_nonlinear_example.jpeg", 
+       height = 5, width = 6.25, dpi = 300)
+```
+
+# Session information
+
+```{r, message = FALSE, warning = FALSE, comment = NA}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
