@@ -16,24 +16,428 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE,
                       fig.width = 6.25, fig.height = 5)
 
 library(tidyverse)
+library(microbiome)
 library(randomcoloR)
 library(ggpubr)
-library(tidygraph)
+library(SpiecEasi)
 library(openxlsx)
-library(energy)
+# library(energy)
+library(robustbase)
 library(DT)
 options(DT.options = list(
   initComplete = JS("function(settings, json) {",
   "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});","}")))
 
+source("../programs/00_secom.R")
+```
+
+```{r helper}
 get_upper_tri = function(cormat){
     cormat[lower.tri(cormat)] = NA
     diag(cormat) = NA
     return(cormat)
 }
+
+hard_thresh = function(R, th){
+  R_th = R
+  R_th[abs(R) <= th] = 0
+  return(R_th)
+}
 ```
 
-# 1. Data summary {.tabset}
+# 1. Data import {.tabset}
+
+## Generate phyloseq objects
+
+```{r, eval=FALSE}
+# The Nomic data are not publicly available
+
+# Metadata
+meta_data = read_csv("../data/nomic/nomic_meta.csv")
+
+# Taxonomy
+tax = read_tsv("../data/nomic/nomic_taxnomy.txt") %>% 
+  arrange(otu_id)
+otu_id = tax$otu_id
+tax = data.frame(tax[, -1]) %>%
+  rowwise() %>%
+  dplyr::mutate_all(function(x) strsplit(x, "__")[[1]][2]) %>%
+  mutate(
+    species = ifelse(!is.na(species) & !is.na(genus),
+                     paste(strsplit(genus, "")[[1]][1], species, sep = "."),
+                     NA)) %>%
+  ungroup()
+tax = as.matrix(tax)
+rownames(tax) = otu_id
+
+# Day 30
+
+# OTU table
+otu_table = read_tsv("../data/nomic/nomic_otu_30.txt")
+sample_id = otu_table$`#SampleID`
+otu_id = colnames(otu_table)[-1]
+otu_table = t(otu_table[, -1])
+otu_table = data.frame(otu_table)
+rownames(otu_table) = otu_id
+colnames(otu_table) = sample_id
+otu_table = as.matrix(otu_table)
+
+# OTU object
+OTU = otu_table(otu_table, taxa_are_rows = TRUE)
+META = sample_data(meta_data)
+sample_names(META) = meta_data$`#SampleID`
+TAX = tax_table(tax)
+otu_data30 = phyloseq(OTU, TAX, META)
+
+# Aggregate to phylum level
+phylum_data30 = aggregate_taxa(otu_data30, "phylum")
+phylum_data30 = subset_taxa(phylum_data30, phylum != "Unknown")
+
+# Aggregate to family level
+family_data30 = aggregate_taxa(otu_data30, "family")
+family_data30 = subset_taxa(family_data30, family != "Unknown")
+
+# Day 120 
+
+# OTU table
+otu_table = read_tsv("../data/nomic/nomic_otu_120.txt") 
+sample_id = otu_table$`#SampleID`
+otu_id = colnames(otu_table)[-1]
+otu_table = t(otu_table[, -1])
+otu_table = data.frame(otu_table)
+rownames(otu_table) = otu_id
+colnames(otu_table) = sample_id
+otu_table = as.matrix(otu_table)
+
+# OTU object
+OTU = otu_table(otu_table, taxa_are_rows = TRUE)
+META = sample_data(meta_data)
+sample_names(META) = meta_data$`#SampleID`
+TAX = tax_table(tax)
+otu_data120 = phyloseq(OTU, TAX, META)
+
+# Aggregate to phylum level
+phylum_data120 = aggregate_taxa(otu_data120, "phylum")
+phylum_data120 = subset_taxa(phylum_data120, phylum != "Unknown")
+
+# Aggregate to family level
+family_data120 = aggregate_taxa(otu_data120, "family")
+family_data120 = subset_taxa(family_data120, family != "Unknown")
+
+# Day 365 
+
+# OTU table
+otu_table = read_tsv("../data/nomic/nomic_otu_365.txt") 
+sample_id = otu_table$`#SampleID`
+otu_id = colnames(otu_table)[-1]
+otu_table = t(otu_table[, -1])
+otu_table = data.frame(otu_table)
+rownames(otu_table) = otu_id
+colnames(otu_table) = sample_id
+otu_table = as.matrix(otu_table)
+
+# OTU object
+OTU = otu_table(otu_table, taxa_are_rows = TRUE)
+META = sample_data(meta_data)
+sample_names(META) = meta_data$`#SampleID`
+TAX = tax_table(tax)
+otu_data365 = phyloseq(OTU, TAX, META)
+
+# Aggregate to phylum level
+phylum_data365 = aggregate_taxa(otu_data365, "phylum")
+phylum_data365 = subset_taxa(phylum_data365, phylum != "Unknown")
+
+# Aggregate to family level
+family_data365 = aggregate_taxa(otu_data365, "family")
+family_data365 = subset_taxa(family_data365, family != "Unknown")
+```
+
+## Quality check
+
+```{r, eval=FALSE}
+# Sample size
+df_sample = data.frame(day30 = nsamples(otu_data30), 
+                       day120 = nsamples(otu_data120), 
+                       day365 = nsamples(otu_data365))
+
+# Find the most abundant taxa across time
+top_phylum30 = top_taxa(phylum_data30, n = 50)
+top_phylum120 = top_taxa(phylum_data120, n = 50)
+top_phylum365 = top_taxa(phylum_data365, n = 50)
+
+top_family30 = top_taxa(family_data30, n = 50)
+top_family120 = top_taxa(family_data120, n = 50)
+top_family365 = top_taxa(family_data365, n = 50)
+
+common_phylum = Reduce(intersect, list(day30 = top_phylum30, 
+                                       day120 = top_phylum120,
+                                       day365 = top_phylum365))
+common_phylum = common_phylum[!is.na(common_phylum)]
+top_phylum = sort(common_phylum[1:10])
+
+common_family = Reduce(intersect, list(day30 = top_family30, 
+                                       day120 = top_family120,
+                                       day365 = top_family365))
+common_family = common_family[!is.na(common_family)]
+top_family = sort(common_family[1:10])
+
+# top_phylum = c("Acidobacteria", "Actinobacteria", "Bacteroidetes", "Cyanobacteria", "Firmicutes", 
+#                "Fusobacteria", "Proteobacteria", "Tenericutes", "TM7", "Verrucomicrobia")
+# top_family = c("Bacteroidaceae", "Bifidobacteriaceae", "Clostridiaceae", "Enterobacteriaceae", "Fusobacteriaceae",
+#                "Lachnospiraceae", "Moraxellaceae", "Pasteurellaceae", "Ruminococcaceae", "Staphylococcaceae")
+
+# Prevalence
+# Phylum
+qc_phylum = data.frame(matrix(NA, nrow = 10, ncol = 4))
+colnames(qc_phylum) = c("phylum", "day30", "day120", "day365")
+
+core_phylum30 = subset_taxa(phylum_data30, phylum %in% top_phylum)
+core_phylum120 = subset_taxa(phylum_data120, phylum %in% top_phylum)
+core_phylum365 = subset_taxa(phylum_data365, phylum %in% top_phylum)
+qc_phylum$phylum = taxa_names(core_phylum30)
+qc_phylum$day30 = apply(abundances(core_phylum30), 1, function(x) sum(x != 0)/nsamples(core_phylum30))
+qc_phylum$day120 = apply(abundances(core_phylum120), 1, function(x) sum(x != 0)/nsamples(core_phylum120))
+qc_phylum$day365 = apply(abundances(core_phylum365), 1, function(x) sum(x != 0)/nsamples(core_phylum365))
+
+# Family
+qc_family = data.frame(matrix(NA, nrow = 10, ncol = 4))
+colnames(qc_family) = c("family", "day30", "day120", "day365")
+
+core_family30 = subset_taxa(family_data30, family %in% top_family)
+core_family120 = subset_taxa(family_data120, family %in% top_family)
+core_family365 = subset_taxa(family_data365, family %in% top_family)
+qc_family$family = taxa_names(core_family30)
+qc_family$day30 = apply(abundances(core_family30), 1, function(x) sum(x != 0)/nsamples(core_family30))
+qc_family$day120 = apply(abundances(core_family120), 1, function(x) sum(x != 0)/nsamples(core_family120))
+qc_family$day365 = apply(abundances(core_family365), 1, function(x) sum(x != 0)/nsamples(core_family365))
+
+# Outputs 
+saveRDS(df_sample, file = "../data/nomic/qc/df_sample.rds")
+saveRDS(df_sample, file = "../data/nomic/qc/qc_phylum.rds")
+saveRDS(df_sample, file = "../data/nomic/qc/qc_family.rds")
+```
+
+# 2. Run SECOM {.tabset}
+
+## Day 30
+
+```{r, eval=FALSE}
+# Phylum level
+phyloseq1 = otu_data30
+phyloseq2 = core_phylum30
+pseqs = list(c(phyloseq1, phyloseq2))
+pseudo = 0; zero_cut = 0.9; corr_cut = 0.5; lib_cut = 0
+wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
+n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5
+
+linear_phy_30 = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                             wins_quant, method, soft, thresh_len, n_cv, 
+                             seed, thresh_hard, max_p, n_cl)
+
+R = 1000; max_p = 0.005
+dist_phy_30 = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                         wins_quant, R, seed, max_p, n_cl)
+
+# Family level
+phyloseq1 = otu_data30
+phyloseq2 = core_family30
+pseqs = list(c(phyloseq1, phyloseq2))
+pseudo = 0; zero_cut = 0.9; corr_cut = 0.5; lib_cut = 0
+wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
+n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5
+
+linear_fam_30 = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                             wins_quant, method, soft, thresh_len, n_cv, 
+                             seed, thresh_hard, max_p, n_cl)
+
+max_p = 0.005
+dist_fam_30 = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                         wins_quant, seed, max_p, n_cl)
+
+# Get bias corrected abundances
+# bias
+s_30 = linear_phy_30$s_diff_hat
+
+# Raw abundances
+raw_phylum30 = abundances(phylum_data30)
+raw_phylum30 = raw_phylum30[, names(s_30)]
+raw_family30 = abundances(family_data30)
+raw_family30 = raw_family30[, names(s_30)]
+
+# Corrected abundances
+o = log(raw_phylum30)
+o[is.infinite(o)] = NA
+d = nrow(o)
+y_hat_phylum_30 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_30))
+
+o = log(raw_family30)
+o[is.infinite(o)] = NA
+d = nrow(o)
+y_hat_family_30 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_30))
+```
+
+## Day 120
+
+```{r, eval=FALSE}
+# Phylum level
+phyloseq1 = otu_data120
+phyloseq2 = core_phylum120
+pseqs = list(c(phyloseq1, phyloseq2))
+pseudo = 0; zero_cut = 0.9; corr_cut = 0.5; lib_cut = 0
+wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
+n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5
+
+linear_phy_120 = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                             wins_quant, method, soft, thresh_len, n_cv, 
+                             seed, thresh_hard, max_p, n_cl)
+
+R = 1000; max_p = 0.005
+dist_phy_120 = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                         wins_quant, R, seed, max_p, n_cl)
+
+# Family level
+phyloseq1 = otu_data120
+phyloseq2 = core_family120
+pseqs = list(c(phyloseq1, phyloseq2))
+pseudo = 0; zero_cut = 0.9; corr_cut = 0.5; lib_cut = 0
+wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
+n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5
+
+linear_fam_120 = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                             wins_quant, method, soft, thresh_len, n_cv, 
+                             seed, thresh_hard, max_p, n_cl)
+
+max_p = 0.005
+dist_fam_120 = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                         wins_quant, seed, max_p, n_cl)
+
+# Get bias corrected abundances
+# bias
+s_120 = linear_phy_120$s_diff_hat
+
+# Raw abundances
+raw_phylum120 = abundances(phylum_data120)
+raw_phylum120 = raw_phylum120[, names(s_120)]
+raw_family120 = abundances(family_data120)
+raw_family120 = raw_family120[, names(s_120)]
+
+# Corrected abundances
+o = log(raw_phylum120)
+o[is.infinite(o)] = NA
+d = nrow(o)
+y_hat_phylum_120 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_120))
+
+o = log(raw_family120)
+o[is.infinite(o)] = NA
+d = nrow(o)
+y_hat_family_120 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_120))
+```
+
+## Day 365
+
+```{r, eval=FALSE}
+# Phylum level
+phyloseq1 = otu_data365
+phyloseq2 = core_phylum365
+pseqs = list(c(phyloseq1, phyloseq2))
+pseudo = 0; zero_cut = 0.9; corr_cut = 0.5; lib_cut = 0
+wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
+n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5
+
+linear_phy_365 = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                             wins_quant, method, soft, thresh_len, n_cv, 
+                             seed, thresh_hard, max_p, n_cl)
+
+R = 1000; max_p = 0.005
+dist_phy_365 = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                         wins_quant, R, seed, max_p, n_cl)
+
+# Family level
+phyloseq1 = otu_data365
+phyloseq2 = core_family365
+pseqs = list(c(phyloseq1, phyloseq2))
+pseudo = 0; zero_cut = 0.9; corr_cut = 0.5; lib_cut = 0
+wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
+n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5
+
+linear_fam_365 = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                             wins_quant, method, soft, thresh_len, n_cv, 
+                             seed, thresh_hard, max_p, n_cl)
+
+max_p = 0.005
+dist_fam_365 = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                         wins_quant, seed, max_p, n_cl)
+
+# Get bias corrected abundances
+# bias
+s_365 = linear_phy_365$s_diff_hat
+
+# Raw abundances
+raw_phylum365 = abundances(phylum_data365)
+raw_phylum365 = raw_phylum365[, names(s_365)]
+raw_family365 = abundances(family_data365)
+raw_family365 = raw_family365[, names(s_365)]
+
+# Corrected abundances
+o = log(raw_phylum365)
+o[is.infinite(o)] = NA
+d = nrow(o)
+y_hat_phylum_365 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_365))
+
+o = log(raw_family365)
+o[is.infinite(o)] = NA
+d = nrow(o)
+y_hat_family_365 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_365))
+```
+
+## Outputs
+
+```{r, eval=FALSE}
+saveRDS(linear_phy_30, file = "../data/nomic/phylum/linear_phy_30.rds")
+saveRDS(dist_phy_30, file = "../data/nomic/phylum/dist_phy_30.rds")
+saveRDS(linear_phy_120, file = "../data/nomic/phylum/linear_phy_120.rds")
+saveRDS(dist_phy_120, file = "../data/nomic/phylum/dist_phy_120.rds")
+saveRDS(linear_phy_365, file = "../data/nomic/phylum/linear_phy_365.rds")
+saveRDS(dist_phy_365, file = "../data/nomic/phylum/dist_phy_365.rds")
+
+saveRDS(linear_fam_30, file = "../data/nomic/familylinear_fam_30.rds")
+saveRDS(dist_fam_30, file = "../data/nomic/familydist_fam_30.rds")
+saveRDS(linear_fam_120, file = "../data/nomic/familylinear_fam_120.rds")
+saveRDS(dist_fam_120, file = "../data/nomic/familydist_fam_120.rds")
+saveRDS(linear_fam_365, file = "../data/nomic/familylinear_fam_365.rds")
+saveRDS(dist_fam_365, file = "../data/nomic/familydist_fam_365.rds")
+
+y_hat_phylum = list(day30 = y_hat_phylum_30,
+                    day120 = y_hat_phylum_120,
+                    day365 = y_hat_phylum_365)
+
+y_hat_family = list(day30 = y_hat_family_30,
+                    day120 = y_hat_family_120,
+                    day365 = y_hat_family_365)
+
+saveRDS(y_hat_phylum, file = "outputs/y_hat_phylum.rds")
+saveRDS(y_hat_family, file = "outputs/y_hat_family.rds")
+```
+
+# 3. Run Sparcc
+
+```{r, eval=FALSE}
+set.seed(123)
+R_hat_sparcc30 = sparcc(t(abundances(family_data30)))$Cor
+dimnames(R_hat_sparcc30) = list(taxa_names(family_data30), taxa_names(family_data30))
+
+R_hat_sparcc120 = sparcc(t(abundances(family_data120)))$Cor
+dimnames(R_hat_sparcc120) = list(taxa_names(family_data120), taxa_names(family_data120))
+
+R_hat_sparcc365 = sparcc(t(abundances(family_data365)))$Cor
+dimnames(R_hat_sparcc365) = list(taxa_names(family_data365), taxa_names(family_data365))
+
+sparcc_obj = list(day30 = R_hat_sparcc30, day120 = R_hat_sparcc120, day365 = R_hat_sparcc365)
+
+saveRDS(sparcc_obj, file = "../data/nomic/sparcc/sparcc_obj.rds")
+```
+
+# 4. Data summary {.tabset}
 
 ## Sample size
 
@@ -66,9 +470,9 @@ colnames(qc_family) = c("Family", "Day 30", "Day 120", "Day 365")
 datatable(qc_family)
 ```
 
-# 2. Phylum level
+# 5. SECOM results: phylum level
 
-## 2.1 Data import
+## 5.1 Data import
 
 ```{r}
 # Linear relationships
@@ -86,7 +490,7 @@ cooccur_phylum_120 = phylum_linear_time_120$mat_cooccur
 cooccur_phylum_365 = phylum_linear_time_365$mat_cooccur
 
 # Filter by p-values
-alpha = 0.05
+alpha = 0.1
 corr_phylum_linear_time_30[p_phylum_linear_time_30 >= alpha] = 0
 corr_phylum_linear_time_120[p_phylum_linear_time_120 >= alpha] = 0
 corr_phylum_linear_time_365[p_phylum_linear_time_365 >= alpha] = 0
@@ -129,7 +533,7 @@ df_phylum_linear = data.frame(get_upper_tri(corr_phylum_linear_time_30)) %>%
   ) %>%
   filter(!is.na(value)) %>%
   mutate(value = round(value, 2),
-         metric = "Linear")
+         metric = "Pearson")
 
 # Distance relationships
 phylum_dist_time_30 = read_rds("../data/nomic/phylum/dist_phy_30.rds")
@@ -143,7 +547,7 @@ p_phylum_dist_time_120 = phylum_dist_time_120$dcorr_p
 p_phylum_dist_time_365 = phylum_dist_time_365$dcorr_p
 
 # Filter by p-values
-alpha = 0.05
+alpha = 0.1
 corr_phylum_dist_time_30[p_phylum_dist_time_30 >= alpha] = 0
 corr_phylum_dist_time_120[p_phylum_dist_time_120 >= alpha] = 0
 corr_phylum_dist_time_365[p_phylum_dist_time_365 >= alpha] = 0
@@ -197,7 +601,7 @@ phy_level = sort(union(df_phylum$var1, df_phylum$var2))
 df_phylum$var1 = factor(df_phylum$var1, levels = phy_level)
 df_phylum$var2 = factor(df_phylum$var2, levels = phy_level)
 df_phylum$day = factor(df_phylum$day, levels = c("Day 30", "Day 120", "Day 365"))
-df_phylum$metric = factor(df_phylum$metric, levels = c("Linear", "Distance"))
+df_phylum$metric = factor(df_phylum$metric, levels = c("Pearson", "Distance"))
 
 # Bias corrected abundances
 y_phylum_all = read_rds("../data/nomic/phylum/y_hat_phylum.rds")
@@ -222,7 +626,7 @@ y_phylum_time_365 = as.data.frame(y_phylum_time_365_all[ind365, ]) %>%
   bind_rows(as.data.frame(t(data.frame(Others = colSums(y_phylum_time_365_all[-ind365, ], na.rm = TRUE)))))
 ```
 
-## 2.2 Visualization {.tabset}
+## 5.2 Visualization {.tabset}
 
 ### Correlation coefficients
 
@@ -352,9 +756,9 @@ ggsave(plot = p_phylum_combine, "../images/supp/supp_nomic_count_phylum.jpeg",
        height = 8, width = 10, dpi = 300)
 ```
 
-# 3. Family level
+# 6. SECOM results: family level
 
-## 3.1 Data import
+## 6.1 Data import
 
 ```{r}
 # Linear relationships
@@ -372,7 +776,7 @@ cooccur_family_120 = family_linear_time_120$mat_cooccur
 cooccur_family_365 = family_linear_time_365$mat_cooccur
 
 # Filter by p-values
-alpha = 0.05
+alpha = 0.1
 corr_family_linear_time_30[p_family_linear_time_30 >= alpha] = 0
 corr_family_linear_time_120[p_family_linear_time_120 >= alpha] = 0
 corr_family_linear_time_365[p_family_linear_time_365 >= alpha] = 0
@@ -415,7 +819,7 @@ df_family_linear = data.frame(get_upper_tri(corr_family_linear_time_30)) %>%
   ) %>%
   filter(!is.na(value)) %>%
   mutate(value = round(value, 2),
-         metric = "Linear")
+         metric = "Pearson")
 
 # Distance relationships
 family_dist_time_30 = read_rds("../data/nomic/family/dist_fam_30.rds")
@@ -429,7 +833,7 @@ p_family_dist_time_120 = family_dist_time_120$dcorr_p
 p_family_dist_time_365 = family_dist_time_365$dcorr_p
 
 # Filter by p-values
-alpha = 0.05
+alpha = 0.1
 corr_family_dist_time_30[p_family_dist_time_30 >= alpha] = 0
 corr_family_dist_time_120[p_family_dist_time_120 >= alpha] = 0
 corr_family_dist_time_365[p_family_dist_time_365 >= alpha] = 0
@@ -483,7 +887,7 @@ fam_level = sort(union(df_family$var1, df_family$var2))
 df_family$var1 = factor(df_family$var1, levels = fam_level)
 df_family$var2 = factor(df_family$var2, levels = fam_level)
 df_family$day = factor(df_family$day, levels = c("Day 30", "Day 120", "Day 365"))
-df_family$metric = factor(df_family$metric, levels = c("Linear", "Distance"))
+df_family$metric = factor(df_family$metric, levels = c("Pearson", "Distance"))
 
 # Bias corrected abundances
 y_family_all = read_rds("../data/nomic/family/y_hat_family.rds")
@@ -508,7 +912,7 @@ y_family_time_365 = as.data.frame(y_family_time_365_all[ind365, ]) %>%
   bind_rows(as.data.frame(t(data.frame(Others = colSums(y_family_time_365_all[-ind365, ], na.rm = TRUE)))))
 ```
 
-## 3.2 Visualization {.tabset}
+## 6.2 Visualization {.tabset}
 
 ### Correlation coefficients
 
@@ -527,8 +931,8 @@ p_family_corr = df_family %>%
   guides(fill = guide_colorbar(barwidth = 7, barheight = 1, 
                                title.position = "top", title.hjust = 0.5)) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),
-        axis.text.y = element_text(size = 12),
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, face = "italic"),
+        axis.text.y = element_text(size = 12, face = "italic"),
         strip.text.x = element_text(size = 14),
         strip.text.y = element_text(size = 14),
         legend.text = element_text(size = 12),
@@ -578,7 +982,9 @@ p_family_abn = df_abn_family %>%
   scale_fill_brewer(name = NULL, palette = "Paired", drop = FALSE) +
   scale_x_discrete(drop = FALSE) +
   facet_wrap(.~family, nrow = 2, scales = "free") +
-  theme_bw()
+  theme_bw() +
+  theme(legend.text = element_text(face = "italic"),
+        strip.text = element_text(face = "italic"))
 p_family_abn
 ```
 
@@ -618,7 +1024,8 @@ p_family_rel = df_rel_family %>%
   geom_bar(position = "stack", stat = "identity") +
   labs(x = "Day", y = "Relative Abundance") +
   scale_fill_brewer(name = NULL, palette = "Paired") +
-  theme_bw()
+  theme_bw() +
+  theme(legend.text = element_text(face = "italic"))
 p_family_rel
 
 df_rel_family = df_rel_family %>%
@@ -646,7 +1053,7 @@ ggsave(plot = p_family_combine, "../images/main/nomic_count_family.jpeg",
 df_res = df_family %>%
   filter(value != 0) %>%
   pivot_wider(names_from = "metric", values_from = "value") %>%
-  mutate(Linear = replace_na(Linear, 0),
+  mutate(Pearson = replace_na(Pearson, 0),
          Distance = replace_na(Distance, 0)) %>%
   arrange(day, var1, var2)
 
@@ -673,7 +1080,9 @@ for (i in seq_along(df_res$var1)) {
       geom_point() +
       geom_smooth(method = "loess", formula = "y ~ x", se = FALSE, color = "red") +
       geom_smooth(method = "lm", formula = "y ~ x", se = FALSE, color = "blue", linetype = "dashed") +
-      theme_bw()
+      theme_bw() +
+      theme(axis.title.x = element_text(face = "italic"),
+            axis.title.y = element_text(face = "italic"))
     scatter_family_time_30[[ind1]] = fig_scatter
     ind1 = ind1 + 1
   } else if (day == "Day 120") {
@@ -686,7 +1095,9 @@ for (i in seq_along(df_res$var1)) {
       geom_point() +
       geom_smooth(method = "loess", formula = "y ~ x", se = FALSE, color = "red") +
       geom_smooth(method = "lm", formula = "y ~ x", se = FALSE, color = "blue", linetype = "dashed") +
-      theme_bw()
+      theme_bw() +
+      theme(axis.title.x = element_text(face = "italic"),
+            axis.title.y = element_text(face = "italic"))
     scatter_family_time_120[[ind2]] = fig_scatter
     ind2 = ind2 + 1
   } else {
@@ -699,7 +1110,9 @@ for (i in seq_along(df_res$var1)) {
       geom_point() +
       geom_smooth(method = "loess", formula = "y ~ x", se = FALSE, color = "red") +
       geom_smooth(method = "lm", formula = "y ~ x", se = FALSE, color = "blue", linetype = "dashed") +
-      theme_bw()
+      theme_bw() +
+      theme(axis.title.x = element_text(face = "italic"),
+            axis.title.y = element_text(face = "italic"))
     scatter_family_time_365[[ind3]] = fig_scatter
     ind3 = ind3 + 1
   }
@@ -717,14 +1130,14 @@ ggsave(plot = pair_scatter_time_30, "../images/supp/supp_nomic_scatter_family_30
        height = 3, width = 6, dpi = 300)
 
 ggsave(plot = pair_scatter_time_120, "../images/supp/supp_nomic_scatter_family_120.pdf", 
-       height = 3, width = 6)   
+       height = 6, width = 6)   
 ggsave(plot = pair_scatter_time_120, "../images/supp/supp_nomic_scatter_family_120.jpeg", 
-       height = 3, width = 6, dpi = 300)
+       height = 6, width = 6, dpi = 300)
 
 ggsave(plot = pair_scatter_time_365, "../images/supp/supp_nomic_scatter_family_365.pdf", 
-       height = 6, width = 6)   
+       height = 8, width = 8)   
 ggsave(plot = pair_scatter_time_365, "../images/supp/supp_nomic_scatter_family_365.jpeg", 
-       height = 6, width = 6, dpi = 300)
+       height = 8, width = 8, dpi = 300)
 
 # Example of nonlinear relationship
 df_y = y_family_list$day365
@@ -743,10 +1156,153 @@ fig_scatter = df_fig %>%
              color = "orange", size = 4, fontface = "bold") +
   geom_smooth(method = "loess", formula = "y ~ x", se = FALSE, color = "red") +
   geom_smooth(method = "lm", formula = "y ~ x", se = FALSE, color = "blue", linetype = "dashed") +
+  theme_bw() +
+  theme(axis.title.x = element_text(face = "italic"),
+        axis.title.y = element_text(face = "italic"))
+
+```
+
+## 6.3 Nonlinearity Examples {.tabset}
+
+### Pasteurellaceae vs. Bacteroidaceae at day 365
+
+```{r}
+df_eg1 = data.frame(x = family_linear_time_365$y_hat["Pasteurellaceae", ],
+                    y = family_linear_time_365$y_hat["Bacteroidaceae", ])
+df_eg1 = df_eg1[complete.cases(df_eg1), ]
+
+rlm1 = lmrob(y ~ x, data = df_eg1, control = lmrob.control(max.it = 100))
+rlm2 = lmrob(y ~ poly(x, 2), data = df_eg1, control = lmrob.control(max.it = 100))
+r_squared1 = round(summary(rlm1)$adj.r.squared, 2)
+r_squared2 = round(summary(rlm2)$adj.r.squared, 2)
+
+df_ann2 = data.frame(x = c(0.75, 0.75), y = c(1.75, 1.25)) %>%
+  mutate(label = c(paste0("R^{2}~(linear) == ",  r_squared1),
+                   paste0("R^{2}~(Poly) == ",  r_squared2)))
+
+scatter_eg1 = df_eg1 %>%
+  ggplot(aes(x = x, y = y)) +
+  geom_point(size = 4) +
+  geom_text(data = df_ann2, aes(x = x, y = y, label = label), hjust = 0, 
+             color = "orange", size = 4, fontface = "bold", parse = TRUE) +
+  labs(x = "Enterobacteriaceae", y = "Ruminococcaceae") +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2), se = FALSE, linetype = "dashed") + 
   theme_bw()
-ggsave(plot = fig_scatter, "../images/supp/supp_nonlinear_example.pdf", height = 5, width = 6.25)
-ggsave(plot = fig_scatter, "../images/supp/supp_nonlinear_example.jpeg", 
-       height = 5, width = 6.25, dpi = 300)
+  
+scatter_eg1
+ggsave(plot = scatter_eg1, "../images/supp/supp_nonlinear_example1.pdf", height = 5, width = 6.25)
+ggsave(plot = scatter_eg1, "../images/supp/supp_nonlinear_example1.jpeg", height = 5, width = 6.25, dpi = 300)
+```
+
+### Enterobacteriaceae vs. Ruminococcaceae at day 120
+
+```{r}
+df_eg2 = data.frame(x = family_linear_time_120$y_hat["Enterobacteriaceae", ],
+                    y = family_linear_time_120$y_hat["Ruminococcaceae", ])
+df_eg2 = df_eg2[complete.cases(df_eg2), ]
+
+rlm1 = lmrob(y ~ x, data = df_eg2, control = lmrob.control(max.it = 100))
+rlm2 = lmrob(y ~ poly(x, 4), data = df_eg2, control = lmrob.control(max.it = 100))
+r_squared1 = round(summary(rlm1)$adj.r.squared, 2)
+r_squared2 = round(summary(rlm2)$adj.r.squared, 2)
+
+df_ann2 = data.frame(x = c(0.75, 0.75), y = c(1.75, 1.25)) %>%
+  mutate(label = c(paste0("R^{2}~(linear) == ",  r_squared1),
+                   paste0("R^{2}~(Poly) == ",  r_squared2)))
+
+scatter_eg2 = df_eg2 %>%
+  ggplot(aes(x = x, y = y)) +
+  geom_point(size = 4) +
+  geom_text(data = df_ann2, aes(x = x, y = y, label = label), hjust = 0, 
+             color = "orange", size = 4, fontface = "bold", parse = TRUE) +
+  labs(x = "Enterobacteriaceae", y = "Ruminococcaceae") +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 4), se = FALSE, linetype = "dashed") + 
+  theme_bw()
+  
+scatter_eg2
+ggsave(plot = scatter_eg2, "../images/supp/supp_nonlinear_example2.pdf", height = 5, width = 6.25)
+ggsave(plot = scatter_eg2, "../images/supp/supp_nonlinear_example2.jpeg", height = 5, width = 6.25, dpi = 300)
+```
+
+# 7. SparCC results
+
+```{r, fig.height=6, fig.width=13}
+top_phylum = c("Acidobacteria", "Actinobacteria", "Bacteroidetes", "Cyanobacteria", "Firmicutes", 
+               "Fusobacteria", "Proteobacteria", "Tenericutes", "TM7", "Verrucomicrobia")
+top_family = c("Bacteroidaceae", "Bifidobacteriaceae", "Clostridiaceae", "Enterobacteriaceae", "Fusobacteriaceae",
+               "Lachnospiraceae", "Moraxellaceae", "Pasteurellaceae", "Ruminococcaceae", "Staphylococcaceae")
+
+sparcc_obj = read_rds("../data/nomic/sparcc/sparcc_obj.rds")
+R_hat_sparcc30 = sparcc_obj$day30
+R_hat_sparcc120 = sparcc_obj$day120
+R_hat_sparcc365 = sparcc_obj$day365
+
+# Day 30
+R_hat_sparcc30 = hard_thresh(R_hat_sparcc30, 0.3)
+col_ind = match(sort(top_family), colnames(R_hat_sparcc30))
+R_hat_sparcc30 = R_hat_sparcc30[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+
+# Day 120
+R_hat_sparcc120 = hard_thresh(R_hat_sparcc120, 0.3)
+col_ind = match(sort(top_family), colnames(R_hat_sparcc120))
+R_hat_sparcc120 = R_hat_sparcc120[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+
+# Day 365
+R_hat_sparcc365 = hard_thresh(R_hat_sparcc365, 0.3)
+col_ind = match(sort(top_family), colnames(R_hat_sparcc365))
+R_hat_sparcc365 = R_hat_sparcc365[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+
+df_sparcc = data.frame(get_upper_tri(R_hat_sparcc30)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  mutate(day = "Day 30") %>%
+  bind_rows(
+    data.frame(get_upper_tri(R_hat_sparcc120)) %>%
+    rownames_to_column("var1") %>%
+    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+    mutate(day = "Day 120")
+  ) %>%
+  bind_rows(
+    data.frame(get_upper_tri(R_hat_sparcc365)) %>%
+    rownames_to_column("var1") %>%
+    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+    mutate(day = "Day 365")
+  ) %>%
+  filter(!is.na(value)) %>%
+  mutate(value = round(value, 2))
+
+fam_level = sort(union(df_sparcc$var1, df_sparcc$var2))
+df_sparcc$var1 = factor(df_sparcc$var1, levels = fam_level)
+df_sparcc$var2 = factor(df_sparcc$var2, levels = fam_level)
+df_sparcc$day = factor(df_sparcc$day, levels = c("Day 30", "Day 120", "Day 365"))
+
+p_sparcc_corr = df_sparcc %>%
+  ggplot(aes(var2, var1, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE) +
+  scale_y_discrete(drop = FALSE) +
+  facet_grid(.~day) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = NULL) +
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1, 
+                               title.position = "top", title.hjust = 0.5)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, face = "italic"),
+        axis.text.y = element_text(size = 12, face = "italic"),
+        strip.text.x = element_text(size = 14),
+        strip.text.y = element_text(size = 14),
+        legend.text = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = "top") +
+  coord_fixed()
+
+p_sparcc_corr
+ggsave(plot = p_sparcc_corr, "../images/supp/supp_nomic_sparcc.pdf", height = 6, width = 13)
+ggsave(plot = p_sparcc_corr, "../images/supp/supp_nomic_sparcc.jpeg", height = 6, width = 13, dpi = 300)
 ```
 
 # Session information

@@ -1,0 +1,64 @@
+"0","# Phylum level"
+"0","phyloseq1 = otu_data365"
+"0","phyloseq2 = core_phylum365"
+"0","pseqs = list(c(phyloseq1, phyloseq2))"
+"0","pesudo = 0; zero_cut = 0.9; corr_cut = 0.5; lib_cut = 0"
+"0","wins_quant = c(0.05, 0.95); method = ""pearson""; soft = FALSE; thresh_len = 20"
+"0","n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5"
+"0",""
+"0","linear_phy_365 = secom_linear(pseqs, pesudo, zero_cut, corr_cut, lib_cut, "
+"0","                             wins_quant, method, soft, thresh_len, n_cv, "
+"0","                             seed, thresh_hard, max_p, n_cl)"
+"2","Warning in sparse_linear(mat = t(y_hat), wins_quant, method, soft, thresh_len,  :"
+"2","
+ "
+"2"," There are some pairs of taxa that have insufficient (< 10) overlapping samples.
+Proceed with caution since the point estimates for these pairs are unstable.
+For pairs of taxa with no overlapping samples, the point estimates will be replaced with 0s,
+and the corresponding p-values will be replaced with 1s.
+Please check `mat_cooccur` for details about the co-occurrence pattern.
+"
+"0","max_p = 0.0001"
+"0","dist_phy_365 = secom_dist(pseqs, pesudo, zero_cut, corr_cut, lib_cut, "
+"0","                         wins_quant, seed, max_p, n_cl)"
+"2","Warning in sparse_dist(mat = t(y_hat), wins_quant, seed, max_p) :"
+"2","
+ "
+"2"," There are some pairs of taxa that have insufficient (< 10) overlapping samples.
+Proceed with caution since the point estimates for these pairs are unstable.
+For pairs of taxa with no overlapping samples, the point estimates will be replaced with 0s,
+and the corresponding p-values will be replaced with 1s.
+Please check `mat_cooccur` for details about the co-occurrence pattern.
+"
+"0","# Family level"
+"0","phyloseq1 = otu_data365"
+"0","phyloseq2 = core_family365"
+"0","pseqs = list(c(phyloseq1, phyloseq2))"
+"0","pesudo = 0; zero_cut = 0.9; corr_cut = 0.5; lib_cut = 0"
+"0","wins_quant = c(0.05, 0.95); method = ""pearson""; soft = FALSE; thresh_len = 20"
+"0","n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5"
+"0",""
+"0","linear_fam_365 = secom_linear(pseqs, pesudo, zero_cut, corr_cut, lib_cut, "
+"0","                             wins_quant, method, soft, thresh_len, n_cv, "
+"0","                             seed, thresh_hard, max_p, n_cl)"
+"2","Warning in sparse_linear(mat = t(y_hat), wins_quant, method, soft, thresh_len,  :"
+"2","
+ "
+"2"," There are some pairs of taxa that have insufficient (< 10) overlapping samples.
+Proceed with caution since the point estimates for these pairs are unstable.
+For pairs of taxa with no overlapping samples, the point estimates will be replaced with 0s,
+and the corresponding p-values will be replaced with 1s.
+Please check `mat_cooccur` for details about the co-occurrence pattern.
+"
+"0","max_p = 0.0001"
+"0","dist_fam_365 = secom_dist(pseqs, pesudo, zero_cut, corr_cut, lib_cut, "
+"0","                         wins_quant, seed, max_p, n_cl)"
+"2","Warning in sparse_dist(mat = t(y_hat), wins_quant, seed, max_p) :"
+"2","
+ "
+"2"," There are some pairs of taxa that have insufficient (< 10) overlapping samples.
+Proceed with caution since the point estimates for these pairs are unstable.
+For pairs of taxa with no overlapping samples, the point estimates will be replaced with 0s,
+and the corresponding p-values will be replaced with 1s.
+Please check `mat_cooccur` for details about the co-occurrence pattern.
+"

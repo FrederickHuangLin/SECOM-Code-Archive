@@ -1,0 +1,26 @@
+{
+    "id": "5F9B4639",
+    "path": "G:/My Drive/Methodological Research/03_secom/SECOM-Code-Archive/simulations/concordance/nonlinear.R",
+    "project_path": "simulations/concordance/nonlinear.R",
+    "type": "r_source",
+    "hash": "418315374",
+    "contents": "",
+    "dirty": false,
+    "created": 1653708219351.0,
+    "source_on_save": false,
+    "relative_order": 4,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "192,52",
+        "scrollLine": "11"
+    },
+    "folds": "27|56|92|0|\n114|138|188|0|\n",
+    "lastKnownWriteTime": 1653684509,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1653708277689,
+    "read_only": false,
+    "read_only_alternatives": []
+}

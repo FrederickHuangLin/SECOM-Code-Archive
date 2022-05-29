@@ -52,7 +52,7 @@ linear_data_generation = function(n, d, d1, corr_mu, corr_prob,
   R0[seq_len(d1), seq_len(d1)] = R0_sub
   
   # Sequencing efficiency
-  C = exp(rnorm(d, mean = 0, sd = 1))
+  C = rbeta(n = d, shape1 = 5, shape2 = 5)
   
   # Microbial loads in the ecosystem
   A_prim = A * C
@@ -95,10 +95,10 @@ simparams = simparams %>%
   arrange(n, d, dispersion, seed)
 simparams_list = apply(simparams, 1, paste0, collapse = "_")
 
-cl = makeCluster(5)
+cl = makeCluster(10)
 registerDoParallel(cl)
 
-res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("microbiome", "doParallel")) %dorng% {
+res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("microbiome", "tidyverse", "doParallel")) %dorng% {
   params = strsplit(i, "_")[[1]]
   n = as.numeric(params[1])
   d = as.numeric(params[2])
@@ -119,42 +119,60 @@ res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packag
   otu_data = phyloseq(OTU, META)
   
   pseqs = list(c(otu_data, otu_data))
-  pesudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
+  pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
   wins_quant = c(0, 1); method = "pearson"; soft = FALSE; thresh_len = 20
-  n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 1
+  n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.001; n_cl = 1
   
-  res_secom = secom_linear(pseqs, pesudo, zero_cut, corr_cut, lib_cut, 
-                           wins_quant, method, soft, thresh_len, n_cv, 
-                           seed, thresh_hard, max_p, n_cl)
+  res_linear = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                            wins_quant, method, soft, thresh_len, n_cv, 
+                            seed, thresh_hard, max_p, n_cl)
+  R = 1000; max_p = 0.001
+  res_dist = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                        wins_quant, R, seed, max_p, n_cl)
   
-  taxa_keep = rownames(res_secom$corr_th)
-  taxa_ind = which(taxa_keep %in% taxa_id)
+  taxa_keep = rownames(res_linear$corr)
+  pos_idx = match(taxa_keep, taxa_id)
   R_hat_secom1 = matrix(0, ncol = d, nrow = d)
-  R_hat_secom1[taxa_ind, taxa_ind] = res_secom$corr_th
+  R_hat_secom1[pos_idx, pos_idx] = res_linear$corr_th
   R_hat_secom2 = matrix(0, ncol = d, nrow = d)
-  R_hat_secom2[taxa_ind, taxa_ind] = res_secom$corr_fl
+  R_hat_secom2[pos_idx, pos_idx] = res_linear$corr_fl
+  R_hat_secom3 = matrix(0, ncol = d, nrow = d)
+  R_hat_secom3[pos_idx, pos_idx] = res_dist$dcorr_fl
   
   # Relative error of Frobenius norm
   rel_F_secom1 = norm(R_hat_secom1 - R0, type = "F")/norm(R0, type = "F")
   rel_F_secom2 = norm(R_hat_secom2 - R0, type = "F")/norm(R0, type = "F")
+  rel_F_secom3 = norm(R_hat_secom3 - R0, type = "F")/norm(R0, type = "F")
   
   # Relative error of Spectral norm
   rel_S_secom1 = norm(R_hat_secom1 - R0, type = "F")/norm(R0, type = "2")
   rel_S_secom2 = norm(R_hat_secom2 - R0, type = "F")/norm(R0, type = "2")
+  rel_S_secom3 = norm(R_hat_secom3 - R0, type = "F")/norm(R0, type = "2")
   
   # TPR
   true_ind = (R0[lower.tri(R0)] != 0)
   secom_ind1 = (R_hat_secom1[lower.tri(R_hat_secom1)] != 0)
   secom_ind2 = (R_hat_secom2[lower.tri(R_hat_secom2)] != 0)
+  secom_ind3 = (R_hat_secom3[lower.tri(R_hat_secom3)] != 0)
   tpr_secom1 = sum(secom_ind1 * true_ind)/sum(true_ind)
   tpr_secom2 = sum(secom_ind2 * true_ind)/sum(true_ind)
+  tpr_secom3 = sum(secom_ind3 * true_ind)/sum(true_ind)
   
   # FPR
   fpr_secom1 = sum(secom_ind1 * (!true_ind))/sum(!true_ind)
   fpr_secom2 = sum(secom_ind2 * (!true_ind))/sum(!true_ind)
+  fpr_secom3 = sum(secom_ind3 * (!true_ind))/sum(!true_ind)
+  
+  # Compare two measures
+  count11 = sum(secom_ind2 == 1 & secom_ind3 == 1)
+  count10 = sum(secom_ind2 == 1 & secom_ind3 == 0)
+  count01 = sum(secom_ind2 == 0 & secom_ind3 == 1)
+  count00 = sum(secom_ind2 == 0 & secom_ind3 == 0)
   
   c(rel_F_secom1, rel_S_secom1, tpr_secom1, fpr_secom1, 
-    rel_F_secom2, rel_S_secom2, tpr_secom2, fpr_secom2)
+    rel_F_secom2, rel_S_secom2, tpr_secom2, fpr_secom2,
+    rel_F_secom3, rel_S_secom3, tpr_secom3, fpr_secom3,
+    count11, count10, count01, count00)
 }
 
 stopCluster(cl)

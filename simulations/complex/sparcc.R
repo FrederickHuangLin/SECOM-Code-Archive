@@ -59,7 +59,7 @@ complex_data_generation = function(n, d, d1, abn_mean1, abn_prob1,
   A1[seq_len(d1), ] = A1_1
   
   # Sequencing efficiency
-  C1 = exp(rnorm(d, mean = 0, sd = 1))
+  C1 = rbeta(n = d, shape1 = 5, shape2 = 5)
   
   # Microbial loads in the ecosystem
   A1_prim = A1 * C1
@@ -87,7 +87,7 @@ complex_data_generation = function(n, d, d1, abn_mean1, abn_prob1,
   A2[seq_len(d1), ] = A2_1
   
   # Sequencing efficiency
-  C2 = exp(rnorm(d, mean = 0, sd = 1))
+  C2 = rbeta(n = d, shape1 = 5, shape2 = 5)
   
   # Microbial loads in the ecosystem
   A2_prim = A2 * C2

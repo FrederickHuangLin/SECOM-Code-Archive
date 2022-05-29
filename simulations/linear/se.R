@@ -1,4 +1,4 @@
-pkg_list = c("doParallel", "doRNG", "Hmisc", "readr", "tidyverse")
+pkg_list = c("doParallel", "doRNG", "Hmisc", "readr", "tidyverse", "Matrix")
 pkg_new = pkg_list[!(pkg_list %in% installed.packages()[, "Package"])]
 if(length(pkg_new)) install.packages(pkg_new)
 
@@ -8,6 +8,7 @@ library(Hmisc)
 library(readr)
 library(tidyverse)
 library(SpiecEasi)
+library(Matrix)
 
 cor2cov = function(R, std) {
   Sigma = outer(std, std) * R
@@ -48,7 +49,7 @@ linear_data_generation = function(n, d, d1, corr_mu, corr_prob,
   R0[seq_len(d1), seq_len(d1)] = R0_sub
   
   # Sequencing efficiency
-  C = exp(rnorm(d, mean = 0, sd = 1))
+  C = rbeta(n = d, shape1 = 5, shape2 = 5)
   
   # Microbial loads in the ecosystem
   A_prim = A * C
@@ -94,7 +95,7 @@ simparams_list = apply(simparams, 1, paste0, collapse = "_")
 cl = makeCluster(10)
 registerDoParallel(cl)
 
-res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("SpiecEasi")) %dorng% {
+res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("SpiecEasi", "Matrix")) %dorng% {
   params = strsplit(i, "_")[[1]]
   n = as.numeric(params[1])
   d = as.numeric(params[2])
@@ -114,8 +115,11 @@ res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packag
   se_gl = spiec.easi(t(O), method = "glasso", lambda.min.ratio = 1e-2,
                      nlambda = 20, pulsar.params = list(rep.num = 50))
   
-  R_hat_se1 = as.matrix(getRefit(se_mb))
-  R_hat_se2 = as.matrix(getRefit(se_gl))
+  se_beta = symBeta(getOptBeta(se_mb), mode = "maxabs")
+  se_cor  = cov2cor(getOptCov(se_gl))
+  
+  R_hat_se1 = as.matrix(se_beta)
+  R_hat_se2 = as.matrix(se_cor * getRefit(se_gl))
   
   # Relative error of Frobenius norm
   rel_F_se1 = norm(R_hat_se1 - R0, type = "F")/norm(R0, type = "F")

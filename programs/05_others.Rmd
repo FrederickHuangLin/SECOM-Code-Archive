@@ -1,0 +1,629 @@
+---
+title: "Other Analyses"
+author: 
+  - Huang Lin$^1$
+  - $^1$NICHD, 6710B Rockledge Dr, Bethesda, MD 20892
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document: 
+    toc: true
+    theme: united
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, 
+                      message = FALSE, comment = NA,
+                      fig.width = 6.25, fig.height = 5)
+
+library(tidyverse)
+library(microbiome)
+library(compositions)
+library(lubridate)
+library(ggpubr)
+library(ggsci)
+library(mice)
+library(DT)
+options(DT.options = list(
+  initComplete = JS("function(settings, json) {",
+  "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});","}")))
+
+source("../programs/00_secom.R")
+```
+
+```{r, helper}
+cor2cov = function(R, std) {
+  Sigma = outer(std, std) * R
+  return(Sigma)
+}
+
+get_upper_tri = function(cormat){
+    cormat[lower.tri(cormat)] = NA
+    diag(cormat) = NA
+    return(cormat)
+}
+```
+
+# 1. Comparison of computational efficiency
+
+```{r, eval=FALSE}
+linear_data_generation = function(n, d, d1, corr_mu, corr_prob, 
+                                  uncorr_mu, uncorr_prob, dispersion, seed) {
+  set.seed(seed)
+  d2 = d - d1
+  
+  mu = c(sample(corr_mu, d1, replace = TRUE, prob = corr_prob), # Correlated taxa
+         sample(uncorr_mu, d2, replace = TRUE, prob = uncorr_prob)) # Uncorrelated taxa
+  
+  # Absolute abundances
+  A = matrix(NA, ncol = n, nrow = d)
+  for (i in seq_len(d)) {
+    A[i, ] = rnbinom(n = n, size = 1/dispersion, mu = mu[i])
+  }
+  
+  for (i in seq(2, d1, 2)) {
+    A[i, ] = poly(x = A[i - 1, ], degree = 1, raw = FALSE)
+    A[i, ] = round(mu[i] * A[i, ]) + mu[i]
+  }
+  
+  R0 = matrix(0, ncol = d, nrow = d)
+  lmat = replicate(d1/2, 
+                   matrix(1, ncol = 2, nrow = 2), 
+                   simplify = FALSE)
+  R0_sub = as.matrix(Matrix::bdiag(lmat))
+  R0_sub[R0_sub == 1] = cor(t(log(A[seq_len(d1), ] + 1)))[R0_sub == 1]
+  R0[seq_len(d1), seq_len(d1)] = R0_sub
+  
+  # Sequencing efficiency
+  C = exp(rnorm(d, mean = 0, sd = 1))
+  
+  # Microbial loads in the ecosystem
+  A_prim = A * C
+  A_dot = colSums(A_prim)
+  
+  # Relative abundances in the ecosystem
+  R = A_prim/t(replicate(d, A_dot))
+  
+  # Sampling fractions
+  S = rbeta(n = n, shape1 = 2, shape2 = 10)
+  
+  # Library sizes
+  O_dot = round(S * A_dot)
+  # Observed abundances
+  O = matrix(NA, nrow = d, ncol = n)
+  for (i in seq(n)) {
+    O[, i] = rmultinom(1, size = O_dot[i], prob = R[, i])
+  }
+  
+  res = list(O = O, R0 = R0)
+  return(res)
+}
+
+n = 100
+d = 200
+d1 = 50
+corr_mu = c(2000, 10000, 40000, 100000)
+corr_prob = c(0.1, 0.4, 0.4, 0.1)
+uncorr_mu = c(2000, 10000, 40000, 100000)
+uncorr_prob = c(0.1, 0.4, 0.4, 0.1)
+dispersion = 0.5
+seed = 123
+
+sim_data = linear_data_generation(n, d, d1, corr_mu, corr_prob, 
+                                  uncorr_mu, uncorr_prob, dispersion, seed)
+O = sim_data$O
+R0 = sim_data$R0
+taxa_id = paste0("T", seq_len(d))
+sample_id = paste0("S", seq_len(n))
+meta_data = data.frame(sample_id = sample_id)
+dimnames(O) = list(taxa_id, sample_id)
+OTU = otu_table(O, taxa_are_rows = TRUE)
+META = sample_data(meta_data)
+sample_names(META) = meta_data$sample_id
+otu_data = phyloseq(OTU, META)
+
+# SECOM
+pseqs = list(c(otu_data, otu_data))
+pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
+wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
+n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5
+
+t_start = Sys.time()
+res_linear = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                          wins_quant, method, soft, thresh_len, n_cv, 
+                          seed, thresh_hard, max_p, n_cl)
+t_end = Sys.time()
+t_secom = difftime(t_end, t_start, units = "secs")
+
+# Proportionality
+vlr = function(mat, x) {
+  lr = log(mat/x)
+  vlr = apply(lr, 2, var)
+  return(vlr)
+}
+
+t_start = Sys.time()
+Rel = sweep(O, 2, colSums(O, na.rm = TRUE), "/")
+Rel_clr = as.data.frame(clr(t(Rel)))
+Rel_clr_var = apply(Rel_clr, 2, var) 
+Rel_vlr = apply(t(Rel), 2, function(x) vlr(t(Rel), x))
+
+Rel_phi = sweep(Rel_vlr, 2, Rel_clr_var, FUN = "/")
+R_hat_prop = matrix(NA, nrow = d, ncol = d)
+for (i in seq_len(d)) {
+  for (j in seq(i, d)) {
+    R_hat_prop[i, j] = min(c(Rel_phi[i, j], Rel_phi[j, i]))
+  }
+}
+t_end = Sys.time()
+t_prop = difftime(t_end, t_start, units = "secs")
+
+# SparCC
+t_start = Sys.time()
+R_hat_sparcc = sparcc(t(O))$Cor
+t_end = Sys.time()
+t_sparcc = difftime(t_end, t_start, units = "secs")
+
+# SPIEC-EASI (MB)
+t_start = Sys.time()
+se_mb = spiec.easi(t(O), method = "mb", lambda.min.ratio = 1e-2,
+                   nlambda = 20, pulsar.params = list(rep.num = 50))
+t_end = Sys.time()
+t_mb = difftime(t_end, t_start, units = "secs")
+
+# SPIEC-EASI (GL)
+t_start = Sys.time()
+se_gl = spiec.easi(t(O), method = "glasso", lambda.min.ratio = 1e-2,
+                   nlambda = 20, pulsar.params = list(rep.num = 50))
+t_end = Sys.time()
+t_gl = difftime(t_end, t_start, units = "secs")
+
+# Standard Pearson
+t_start = Sys.time()
+res_sample = Hmisc::rcorr(t(O), type = "pearson")
+corr_sample = res_sample$r
+corr_sample_p = res_sample$P
+diag(corr_sample_p) = 0
+t_end = Sys.time()
+t_sample = difftime(t_end, t_start, units = "secs")
+
+# Output
+df_t = data.frame(SECOM = t_secom, Proportionality = t_prop,
+                  SparCC = t_sparcc, `SPIEC-EASI (MB)` = t_mb,
+                  `SPIEC-EASI (GL)` = t_gl, Pearson = t_sample, 
+                  check.names = FALSE)
+df_t = df_t %>%
+  mutate_all(function(x) round(x, 1))
+
+write_csv(df_t, "../outputs/others/cpu_time.csv")
+```
+
+```{r}
+df_t = read_csv("../outputs/others/cpu_time.csv")
+datatable(df_t)
+```
+
+# 2. Linear vs. distance correlations
+
+```{r, fig.height=5, fig.width=10}
+df = data.frame(x = seq(0, 10, 0.5)) %>% 
+  mutate(Linear = 3 * x,
+         Quadratic = (x - 5)^2)
+  
+ann = data.frame(x = c(5, 5), y = c(25.5, 25.5), 
+                 label = c(paste0("pCor = ", round(cor.test(df$x, df$Linear, method = "pearson")$estimate, 2),
+                                  "\ndCor = ", round(dcor(df$x, df$Linear), 2)),
+                           paste0("pCor = ", round(cor.test(df$x, df$Quadratic, method = "pearson")$estimate, 2),
+                                  "\ndCor = ", round(dcor(df$x, df$Quadratic), 2))),
+                 type = c("Linear", "Quadratic"))
+df = df %>%
+  pivot_longer(cols = Linear:Quadratic, names_to = "type", values_to = "y")
+
+p = ggplot(data = df, aes(x = x, y = y)) +
+  geom_point() +
+  scale_y_continuous(breaks = seq(0, 25, 5), limits = c(0, 27)) + 
+  facet_grid(.~type) +
+  geom_label(data = ann, aes(x = x, y = y, label = label),
+             color = "orange", size = 4, fontface = "bold") +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = "white"))
+p
+ggsave(plot = p, "../images/supp/supp_diff_corr.pdf", height = 5, width = 10)   
+ggsave(plot = p, "../images/supp/supp_diff_corr.jpeg", height = 5, width = 10, dpi = 300)
+```
+
+# 3. Original data vs. rank-transformed data
+
+```{r, fig.height=8, fig.width=10}
+set.seed(123)
+
+# Linear
+df = data.frame(x = runif(100, min = -2, max = 2)) %>% 
+  mutate(y = 2 * x + rnorm(100))
+rank_df = df %>% 
+  transmute(x = rank(x), y = rank(y))
+p_df = bind_rows(df, rank_df) %>% 
+  mutate(group = rep(c("Original", "Rank"), each = 100))
+ann_df = data.frame(x = c(0, 50), y = c(5, 98), lab = "Text",
+                    group = c("Original", "Rank"),
+                    label = c(paste0("dCor = ", round(dcor(x = df$x, y = df$y), 2)),
+                              paste0("dCor = ", round(dcor(x = rank_df$x, y = rank_df$y), 2))))
+p1 = p_df %>% 
+  ggplot(aes(x = x, y = y)) +
+  geom_point() + 
+  facet_wrap(.~group, scales = "free") +
+  theme_bw() +
+  geom_label(data = ann_df, mapping = aes(x = x, y = y, group = group, label = label),
+             color = "orange", size = 4, fontface = "bold") +
+  theme(strip.background = element_rect(fill = "white"))
+
+# Nonlinear
+df = data.frame(x = runif(100, min = -2, max = 2)) %>% 
+  mutate(y = x^2 + rnorm(100))
+rank_df = df %>% 
+  transmute(x = rank(x), y = rank(y))
+p_df = bind_rows(df, rank_df) %>% 
+  mutate(group = rep(c("Original", "Rank"), each = 100))
+ann_df = data.frame(x = c(0, 50), y = c(5, 95), lab = "Text",
+                    group = c("Original", "Rank"),
+                    label = c(paste0("dCor = ", round(dcor(x = df$x, y = df$y), 2)),
+                              paste0("dCor = ", round(dcor(x = rank_df$x, y = rank_df$y), 2))))
+p2 = p_df %>% 
+  ggplot(aes(x = x, y = y)) +
+  geom_point() + 
+  facet_wrap(.~group, scales = "free") +
+  theme_bw() +
+  geom_label(data = ann_df, mapping = aes(x = x, y = y, group = group, label = label),
+             color = "orange", size = 4, fontface = "bold") +
+  theme(strip.background = element_rect(fill = "white"))
+
+p = ggarrange(p1, p2, nrow = 2, ncol = 1, labels = c("a", "b"))
+print(p)
+ggsave(plot = p, "../images/supp/supp_org_rank.pdf", height = 8, width = 10)   
+ggsave(plot = p, "../images/supp/supp_org_rank.jpeg", height = 8, width = 10, dpi = 300)
+```
+
+# 4. Ways of handling zeros
+
+## 4.1 Adding pseudo-counts {.tabset}
+
+### Uncorrelated pair
+
+```{r}
+set.seed(123)
+n = 20
+A1 = rnbinom(n = n, size = 2, mu = 200)
+A2 = rnbinom(n = n, size = 2, mu = 200)
+a1 = log(A1)
+a2 = log(A2)
+O1 = floor(A1 * 0.25)
+O2 = floor(A2 * 0.25)
+O1[1:8] = 0
+O2[13:20] = 0
+
+df0 = data.frame(tax1 = a1, tax2 = a2)
+
+df1 = data.frame(tax1 = log(O1), tax2 = log(O2)) %>%
+  mutate_if(is.numeric, list(~na_if(., -Inf)))
+
+df2 = data.frame(tax1 = log(O1 + 1), tax2 = log(O2 + 1)) %>%
+  mutate_if(is.numeric, list(~na_if(., -Inf)))
+
+df = df0 %>%
+  mutate(type = "True abundances") %>%
+  bind_rows(
+    df1 %>%
+      mutate(type = "CCA") 
+  ) %>%
+  bind_rows(
+    df2 %>%
+      mutate(type = "Add One")
+  )
+df$type = factor(df$type, c("True abundances", "CCA", "Add One"))
+
+ann = data.frame(x = c(5, 3, 1.5), y = c(5.8, 4.4, 4), 
+                 label = c(paste0("r = ", round(cor.test(df0$tax1, df0$tax2, method = "pearson")$estimate, 2),
+                                  "\np = ", round(cor.test(df0$tax1, df0$tax2, method = "pearson")$p.value, 2)),
+                           paste0("r = ", round(cor.test(df1$tax1, df1$tax2, method = "pearson")$estimate, 2),
+                                  "\np = ", round(cor.test(df1$tax1, df1$tax2, method = "pearson")$p.value, 2)),
+                           paste0("r = ", round(cor.test(df2$tax1, df2$tax2, method = "pearson")$estimate, 2),
+                                  "\np = ", round(cor.test(df2$tax1, df2$tax2, method = "pearson")$p.value, 2))),
+                 type = c("True abundances", "CCA", "Add One"))
+ann$type = factor(ann$type, c("True abundances", "CCA", "Add One"))
+
+p_pseudo1 = ggplot(data = df, aes(x = tax1, y = tax2)) +
+  geom_point() +
+  facet_wrap(.~type, scales = "free") +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+  labs(x = "Taxon 1", y = "Taxon 2", title = "Uncorrelated Pair") + 
+  geom_label(data = ann, aes(x = x, y = y, label = label),
+             color = "orange", size = 4, fontface = "bold") +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = "white"),
+        plot.title = element_text(hjust = 0.5))
+```
+
+### Correlated pair
+
+```{r}
+set.seed(123)
+n = 20
+A1 = rnbinom(n = n, size = 2, mu = 200)
+A2 = 2 * A1
+a1 = log(A1)
+a2 = log(A2)
+O1 = floor(A1 * 0.25)
+O2 = floor(A2 * 0.25)
+O1[1:7] = 0
+O2[14:20] = 0
+
+df0 = data.frame(tax1 = a1, tax2 = a2)
+
+df1 = data.frame(tax1 = log(O1), tax2 = log(O2)) %>%
+  mutate_if(is.numeric, list(~na_if(., -Inf)))
+
+df2 = data.frame(tax1 = log(O1 + 1), tax2 = log(O2 + 1)) %>%
+  mutate_if(is.numeric, list(~na_if(., -Inf)))
+
+df = df0 %>%
+  mutate(type = "True abundances") %>%
+  bind_rows(
+    df1 %>%
+      mutate(type = "CCA") 
+  ) %>%
+  bind_rows(
+    df2 %>%
+      mutate(type = "Add One")
+  )
+df$type = factor(df$type, c("True abundances", "CCA", "Add One"))
+
+ann = data.frame(x = c(4, 3, 1.5), y = c(5.8, 4.4, 4), 
+                 label = c(paste0("r = ", round(cor.test(df0$tax1, df0$tax2, method = "pearson")$estimate, 2),
+                                  "\np = ", round(cor.test(df0$tax1, df0$tax2, method = "pearson")$p.value, 2)),
+                           paste0("r = ", round(cor.test(df1$tax1, df1$tax2, method = "pearson")$estimate, 2),
+                                  "\np = ", round(cor.test(df1$tax1, df1$tax2, method = "pearson")$p.value, 2)),
+                           paste0("r = ", round(cor.test(df2$tax1, df2$tax2, method = "pearson")$estimate, 2),
+                                  "\np = ", round(cor.test(df2$tax1, df2$tax2, method = "pearson")$p.value, 2))),
+                 type = c("True abundances", "CCA", "Add One"))
+ann$type = factor(ann$type, c("True abundances", "CCA", "Add One"))
+
+p_pseudo2 = ggplot(data = df, aes(x = tax1, y = tax2)) +
+  geom_point() +
+  facet_wrap(.~type, scales = "free") +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+  labs(x = "Taxon 1", y = "Taxon 2", title = "Correlated Pair") + 
+  geom_label(data = ann, aes(x = x, y = y, label = label),
+             color = "orange", size = 4, fontface = "bold") +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = "white"),
+        plot.title = element_text(hjust = 0.5))
+```
+
+### Output
+
+```{r, fig.height=10, fig.width=12}
+p_pseudo = ggarrange(p_pseudo1, p_pseudo2, nrow = 2, labels = c("a", "b"))
+p_pseudo
+ggsave(plot = p_pseudo, "../images/supp/supp_pseudo.pdf", height = 10, width = 12)   
+ggsave(plot = p_pseudo, "../images/supp/supp_pseudo.jpeg", height = 10, width = 12, dpi = 300)
+```
+
+## 4.2 Imputation {.tabset}
+
+### Uncorrelated pair
+
+```{r, eval=FALSE}
+iter_num = 100
+n = 100
+abn_mean = c(200, 200)
+dispersion = 2
+
+cl = makeCluster(5)
+registerDoParallel(cl)
+
+res = foreach(i = seq_len(iter_num), .combine = rbind, .verbose = TRUE, .packages = c("mice")) %dorng% {
+  set.seed(i)
+  
+  template_var = sapply(abn_mean, function(x) 
+    log((x + dispersion * x^2)/x^2 + 1))
+  template_mean = log(abn_mean) - template_var/2
+  mu = template_mean
+  std = rep(NA, length(mu))
+  for (i in seq_along(template_mean)) {
+    std[mu == template_mean[i]] = sqrt(template_var[i])
+  }
+  R = diag(1, nrow = length(mu))
+  Sigma = cor2cov(R = R, std = std)
+  
+  a = t(MASS::mvrnorm(n = n, mu = mu, Sigma = Sigma))
+  A = round(exp(a))
+  
+  S_list = c(0.1, 0.05, 0.02, 0.01, 0.005)
+  res1 = data.frame(S = S_list, zero_prop = NA, r_complete = NA, r_impute = NA)
+  
+  for (i in seq_along(S_list)) {
+    S = S_list[i]
+    O = floor(A * S)
+    res1$zero_prop[i] = sum(O == 0) / (2 * n)
+    
+    o = log(O); o[is.infinite(o)] = NA
+    df = data.frame(t(o))
+    colnames(df) = c("o1", "o2")
+    
+    df_impute = mice(df, m = 1, maxit = 50, meth = "pmm", seed = 123, print = FALSE)
+    df_fill = complete(df_impute, 1)
+    
+    res_complete = cor.test(df$o1, df$o2)
+    res1$r_complete[i] = res_complete$estimate
+    
+    res_impute = cor.test(df_fill$o1, df_fill$o2)
+    res1$r_impute[i] = res_impute$estimate
+  }
+  
+  res1
+}
+
+stopCluster(cl)
+
+write_csv(data.frame(res), "cca_vs_mice_uncorr.csv")
+```
+
+```{r}
+res1 = read_csv("../outputs/others/cca_vs_mice_uncorr.csv")
+res1$S = factor(res1$S, levels = c("0.1", "0.05", "0.02", "0.01", "0.005"))
+
+df_fig1 = res1 %>%
+  group_by(S) %>%
+  summarise(r1 = mean(r_complete, na.rm = TRUE),
+            std1 = sd(r_complete, na.rm = TRUE),
+            r2 = mean(r_impute, na.rm = TRUE),
+            std2 = sd(r_impute, na.rm = TRUE))
+
+df_fig1 = df_fig1 %>%
+  select(-contains("2")) %>%
+  rename(r = r1, std = std1) %>%
+  mutate(type = "CCA") %>%
+  bind_rows(
+    df_fig1 %>%
+      select(-contains("1")) %>%
+      rename(r = r2, std = std2) %>%
+      mutate(type = "MICE")
+  ) %>%
+  mutate_if(is.numeric, function(x) round(x, 3))
+
+p_impute1 = df_fig1 %>%
+  ggplot(aes(x = S, y = r, fill = type)) +
+  geom_bar(stat = "identity", color = "black", 
+           position = position_dodge()) +
+  geom_errorbar(aes(ymin = r - std, ymax = r + std), width = .2,
+                position = position_dodge(.9)) +
+  labs(x = "Sampling fraction", y = "Correlation estimate", 
+       title = "Bias of Estimating Zero Correlation Coefficients") +
+  scale_fill_npg(name = NULL) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+datatable(df_fig1)
+```
+
+### Correlated pairs
+
+```{r, eval=FALSE}
+iter_num = 100
+n = 100
+abn_mean = c(200, 200)
+dispersion = 2
+
+cl = makeCluster(5)
+registerDoParallel(cl)
+
+res = foreach(i = seq_len(iter_num), .combine = rbind, .verbose = TRUE, .packages = c("mice")) %dorng% {
+  set.seed(i)
+  
+  template_var = sapply(abn_mean, function(x) 
+    log((x + dispersion * x^2)/x^2 + 1))
+  template_mean = log(abn_mean) - template_var/2
+  mu = template_mean
+  std = rep(NA, length(mu))
+  for (i in seq_along(template_mean)) {
+    std[mu == template_mean[i]] = sqrt(template_var[i])
+  }
+  R = matrix(c(1, 0.8, 0.8, 1), nrow = 2)
+  Sigma = cor2cov(R = R, std = std)
+  
+  a = t(MASS::mvrnorm(n = n, mu = mu, Sigma = Sigma))
+  A = round(exp(a))
+  
+  S_list = c(0.1, 0.05, 0.02, 0.01, 0.005)
+  res2 = data.frame(S = S_list, zero_prop = NA, 
+                    r_complete = NA, r_impute = NA)
+  
+  for (i in seq_along(S_list)) {
+    S = S_list[i]
+    O = floor(A * S)
+    res2$zero_prop[i] = sum(O == 0) / (2 * n)
+    
+    o = log(O); o[is.infinite(o)] = NA
+    df = data.frame(t(o))
+    colnames(df) = c("o1", "o2")
+    
+    df_impute = mice(df, m = 1, maxit = 50, meth = "pmm", seed = 123, print = FALSE)
+    df_fill = complete(df_impute, 1)
+    
+    res_complete = cor.test(df$o1, df$o2)
+    res2$r_complete[i] = res_complete$estimate
+    
+    res_impute = cor.test(df_fill$o1, df_fill$o2)
+    res2$r_impute[i] = res_impute$estimate
+  }
+  
+  res2
+}
+
+stopCluster(cl)
+
+write_csv(data.frame(res), "cca_vs_mice_corr.csv")
+```
+
+```{r}
+res2 = read_csv("../outputs/others/cca_vs_mice_corr.csv")
+res2$S = factor(res2$S, levels = c("0.1", "0.05", "0.02", "0.01", "0.005"))
+
+df_fig2 = res2 %>%
+  group_by(S) %>%
+  summarise(r1 = mean(r_complete, na.rm = TRUE),
+            std1 = sd(r_complete, na.rm = TRUE),
+            r2 = mean(r_impute, na.rm = TRUE),
+            std2 = sd(r_impute, na.rm = TRUE))
+
+df_fig2 = df_fig2 %>%
+  select(-contains("2")) %>%
+  rename(r = r1, std = std1) %>%
+  mutate(type = "CCA") %>%
+  bind_rows(
+    df_fig2 %>%
+      select(-contains("1")) %>%
+      rename(r = r2, std = std2) %>%
+      mutate(type = "MICE")
+  ) %>%
+  mutate_if(is.numeric, function(x) round(x, 3))
+
+p_impute2 = df_fig2 %>%
+  ggplot(aes(x = S, y = r, fill = type)) +
+  geom_bar(stat = "identity", color = "black", 
+           position = position_dodge()) +
+  geom_errorbar(aes(ymin = r - std, ymax = r + std), width = .2,
+                position = position_dodge(.9)) +
+  geom_hline(yintercept = 0.8, linetype = "dashed") +
+  labs(x = "Sampling fraction", y = "Correlation estimate", 
+       title = "Bias of Estimating Nonzero Correlation Coefficients") +
+  scale_fill_npg(name = NULL) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+datatable(df_fig2)
+```
+
+### Output
+
+```{r, fig.height=10, fig.width=12}
+p_impute = ggarrange(p_impute1, p_impute2, nrow = 2, labels = c("a", "b"),
+                     common.legend = TRUE, legend = "right")
+p_impute
+ggsave(plot = p_impute, "../images/supp/supp_impute.pdf", height = 10, width = 12)   
+ggsave(plot = p_impute, "../images/supp/supp_impute.jpeg", height = 10, width = 12, dpi = 300)
+```
+
+# Session information
+
+```{r, message = FALSE, warning = FALSE, comment = NA}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+

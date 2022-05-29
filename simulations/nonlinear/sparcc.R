@@ -57,7 +57,7 @@ nonlinear_data_generation = function(n, d, d1, abn_mean, abn_prob,
   A = rbind(A1, A2)
   
   # Sequencing efficiency
-  C = exp(rnorm(d, mean = 0, sd = 1))
+  C = rbeta(n = d, shape1 = 5, shape2 = 5)
   
   # Microbial loads in the ecosystem
   A_prim = A * C

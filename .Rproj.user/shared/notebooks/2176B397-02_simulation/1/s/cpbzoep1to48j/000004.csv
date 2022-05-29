@@ -1,0 +1,5 @@
+"0",""
+"0","ggsave(filename = ""../images/main/sim_nonlinear.jpeg"","
+"0","       plot = p_nonlinear, width = 8, height = 6, units = ""in"", dpi = 300)"
+"0","ggsave(filename = ""../images/main/sim_nonlinear.pdf"","
+"0","       plot = p_nonlinear, width = 8, height = 6)"

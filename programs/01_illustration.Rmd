@@ -18,14 +18,19 @@ library(tidyverse)
 library(microbiome)
 library(GGally)
 library(plotly)
-library(corrplot)
 library(SpiecEasi)
 library(ggpubr)
+library(ggsci)
 
 source("../programs/00_secom.R")
 ```
 
 ```{r helper}
+cor2cov = function(R, std) {
+  Sigma = outer(std, std) * R
+  return(Sigma)
+}
+
 get_upper_tri = function(cormat){
     cormat[lower.tri(cormat)] = NA
     diag(cormat) = NA
@@ -87,13 +92,17 @@ for (i in seq.int(from = 5, to = d)) {
 }
 
 # Dependent pairs of taxa
-template1 = rnbinom(n = n, size = 1/dispersion, mu = 2000)
-template2 = rnbinom(n = n, size = 1/dispersion, mu = 2000)
-template1_poly = poly(x = template1, degree = 1, raw = FALSE)
-template2_poly = poly(x = template2, degree = 2, raw = FALSE)
-poly1 = round(10000 * template1_poly[, 1] + 10000)
-poly2 = round(10000 * template2_poly[, 2] + 10000)
-A_dep = rbind(template1, template2, poly1, poly2)
+abn_mean = c(2000, 2000)
+template_var = log((abn_mean + dispersion * abn_mean^2)/abn_mean^2 + 1)
+template_mean = log(abn_mean) - template_var/2
+
+Sigma = cor2cov(R = diag(1, nrow = 2), std = sqrt(template_var))
+template = t(MASS::mvrnorm(n = n, mu = template_mean, Sigma = Sigma))
+template1 = template[1, ]
+template2 = template[2, ]
+poly1 = template_mean[1] * poly(x = template1, degree = 1, raw = FALSE)[, 1] + template_mean[1]
+poly2 = template_mean[2] * poly(x = template2, degree = 2, raw = FALSE)[, 2] + template_mean[2]
+A_dep = round(exp(rbind(template, poly1, poly2)))
 
 for (i in 1:4) {
   A[i, ] = A_dep[i, ]
@@ -106,20 +115,21 @@ sample_id = paste0("S", seq_len(n))
 rownames(A) = taxa_id
 colnames(A) = sample_id
 
-p_A = data.frame(t(A[1:5, ])) %>% 
-  ggpairs(title = "Synthetic Absolute Abundances",
-          progress = FALSE) +
+p_a = data.frame(t(log(A[1:5, ]))) %>% 
+  ggpairs(title = "Synthetic Log Absolute Abundances",
+          progress = FALSE,
+          upper = NULL, diag = NULL) +
   theme_bw() + 
   theme(plot.title = element_text(hjust = 0.5),
         strip.background = element_rect(fill = "white"))
-print(p_A)
+print(p_a)
 ```
 
 ## 1.2 Observed abundances
  
 ```{r}
 # Sequencing efficiency
-C = exp(rnorm(d, mean = 0, sd = 1))
+C = rbeta(n = d, shape1 = 5, shape2 = 5)
 
 # Microbial loads in the ecosystem
 A_prim = A * C
@@ -153,49 +163,49 @@ e = log(E)
 o = log(O)
 r = O/t(replicate(d, O_dot))
 
-p_O = data.frame(t(O[1:5, ])) %>% 
-  ggpairs(title = "Synthetic Observed Abundances",
-          progress = FALSE) +
+p_o = data.frame(t(log(O[1:5, ]))) %>% 
+  ggpairs(title = "Synthetic Log Observed Abundances",
+          progress = FALSE, upper = NULL, diag = NULL) +
   theme_bw() + 
   theme(plot.title = element_text(hjust = 0.5),
         strip.background = element_rect(fill = "white"))
-print(p_O)
+print(p_o)
 ```
 
-## 1.3 Example: taxon 3 vs. taxon 4
+## 1.3 Example: taxon 1 vs. taxon 2
 
-```{r}
+```{r, fig.width = 12, fig.height = 5}
 # Absolute abundance
-A_t34 = data.frame(t(A[3:4, ]))
-ls_cor_test = cor.test(x = A_t34$T3, y = A_t34$T4, method = "pearson")
-df_ann = data.frame(x = 12000, y = 14000) %>%
+A_t12 = data.frame(t(A[1:2, ]))
+ls_cor_test = cor.test(x = A_t12$T1, y = A_t12$T2, method = "pearson")
+df_ann = data.frame(x = 4000, y = 4000) %>%
   mutate(label = paste0("r = ", round(ls_cor_test$estimate, 2),
                         "\n", "p = ", round(ls_cor_test$p.value, 2)))
-p_A_t34 = A_t34 %>%
-  ggplot(aes(x = T3, y = T4)) +
-  geom_point(size = 8, alpha = 0.6) +
-  labs(title = "Absolute Abundances for Taxon 3 and Taxon 4") +
+p_A_t12 = A_t12 %>%
+  ggplot(aes(x = T1, y = T2)) +
+  geom_point(size = 4, alpha = 0.6) +
+  labs(title = "Absolute Abundances for T1 and T2") +
   geom_label(data = df_ann, aes(x = x, y = y, label = label), 
              size = 6, vjust = -0.5, hjust = 0, color = "black") +
   theme_bw() +
   theme(plot.title = element_text(hjust = 0.5))
-p_A_t34
 
 # Observed abundance
-O_t34 = data.frame(t(O[3:4, ]))
-ls_cor_test = cor.test(x = O_t34$T3, y = O_t34$T4, method = "pearson")
-df_ann = data.frame(x = 400, y = 100) %>%
+O_t12 = data.frame(t(O[1:2, ]))
+ls_cor_test = cor.test(x = O_t12$T1, y = O_t12$T2, method = "pearson")
+df_ann = data.frame(x = 600, y = 710) %>%
   mutate(label = paste0("r = ", round(ls_cor_test$estimate, 2),
                         "\n", "p = ", round(ls_cor_test$p.value, 2)))
-p_O_t34 = O_t34 %>%
-  ggplot(aes(x = T3, y = T4)) +
-  geom_point(size = 8, alpha = 0.6) +
-  labs(title = "Observed Abundances for T3 and T4") +
+p_O_t12 = O_t12 %>%
+  ggplot(aes(x = T1, y = T2)) +
+  geom_point(size = 4, alpha = 0.6) +
+  labs(title = "Observed Abundances for T1 and T2") +
   geom_label(data = df_ann, aes(x = x, y = y, label = label), 
              size = 6, vjust = -0.5, hjust = 0, color = "black") +
   theme_bw() +
   theme(plot.title = element_text(hjust = 0.5))
-p_O_t34
+
+ggarrange(p_A_t12, p_O_t12, ncol = 2)
 ```
 
 # 2. Standard Pearson correlation {.tabset}
@@ -221,22 +231,22 @@ df_p$var1 = factor(df_p$var1, levels = paste0("T", 1:5))
 df_p$var2 = factor(df_p$var2, levels = paste0("T", 1:5))
 
 p_sample = df_p %>%
-  ggplot(aes(var2, var1, fill = value)) +
+  ggplot(aes(var1, var2, fill = value)) +
   geom_tile(color = "black") +
   scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "white",
-                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       midpoint = 0, limit = c(-1, 1), space = "Lab", 
                        name = NULL) +
-  scale_x_discrete(drop = FALSE) +
-  scale_y_discrete(drop = FALSE) +
-  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
-  labs(x = NULL, y = NULL, title = "Standard Pearson Correlation") +
+  scale_x_discrete(drop = FALSE, position = "top") +
+  scale_y_discrete(drop = FALSE, limits = rev, position = "right") +
+  geom_text(aes(var1, var2, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "Standard Pearson") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),
+  theme(axis.text.x = element_text(vjust = 1, size = 12, hjust = 1),
         axis.text.y = element_text(size = 12),
         plot.title = element_text(hjust = 0.5),
         panel.grid.major = element_blank(),
         axis.ticks = element_blank(),
-        legend.position = c(0.3, 0.8),
+        legend.position = c(0.7, 0.8),
         legend.direction = "horizontal")+
   guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
                                title.position = "top", title.hjust = 0.5)) +
@@ -250,7 +260,7 @@ p_sample
 ```{r}
 p_dense_sample = p_dens(corr_sample_p)
 p_dense_sample = p_dense_sample + 
-  labs(title = "Standard Pearson Correlation") +
+  labs(title = "Standard Pearson") +
   theme(plot.title = element_text(hjust = 0.5))
 
 ggplotly(p_dense_sample)
@@ -275,22 +285,22 @@ df_p$var1 = factor(df_p$var1, levels = paste0("T", 1:5))
 df_p$var2 = factor(df_p$var2, levels = paste0("T", 1:5))
 
 p_sparcc = df_p %>%
-  ggplot(aes(var2, var1, fill = value)) +
+  ggplot(aes(var1, var2, fill = value)) +
   geom_tile(color = "black") +
   scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "white",
-                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       midpoint = 0, limit = c(-1, 1), space = "Lab", 
                        name = NULL) +
-  scale_x_discrete(drop = FALSE) +
-  scale_y_discrete(drop = FALSE) +
-  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
+  scale_x_discrete(drop = FALSE, position = "top") +
+  scale_y_discrete(drop = FALSE, limits = rev, position = "right") +
+  geom_text(aes(var1, var2, label = value), color = "black", size = 4) +
   labs(x = NULL, y = NULL, title = "SparCC") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),
+  theme(axis.text.x = element_text(vjust = 1, size = 12, hjust = 1),
         axis.text.y = element_text(size = 12),
         plot.title = element_text(hjust = 0.5),
         panel.grid.major = element_blank(),
         axis.ticks = element_blank(),
-        legend.position = c(0.3, 0.8),
+        legend.position = c(0.7, 0.8),
         legend.direction = "horizontal")+
   guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
                                title.position = "top", title.hjust = 0.5)) +
@@ -309,27 +319,27 @@ sample_names(META) = meta_data$sample_id
 otu_data = phyloseq(OTU, META)
 
 pseqs = list(c(otu_data, otu_data))
-pesudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
+pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
 wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
 n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5
 
-res_linear = secom_linear(pseqs, pesudo, zero_cut, corr_cut, lib_cut, 
+res_linear = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
                           wins_quant, method, soft, thresh_len, n_cv, 
                           seed, thresh_hard, max_p, n_cl)
 
-max_p = 0.01; R = 1000
-res_dist = secom_dist(pseqs, pesudo, zero_cut, corr_cut, lib_cut, 
+R = 1000; max_p = 0.005
+res_dist = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
                       wins_quant, R, seed, max_p, n_cl)
 ```
 
-## 4.1 Absolute abundance estimation
+## 4.1 Bias-corrected abundance estimation
 
 ```{r}
 y_hat = res_linear$y_hat
 
 p_y_hat = data.frame(t(y_hat[1:5, ])) %>% 
-  ggpairs(title = "Estimated Absolute Abundances", 
-          progress = FALSE) +
+  ggpairs(title = "Bias-Corrected Abundances", 
+          progress = FALSE, upper = NULL, diag = NULL) +
   theme_bw() + 
   theme(plot.title = element_text(hjust = 0.5),
         strip.background = element_rect(fill = "white"))
@@ -342,7 +352,9 @@ print(p_y_hat)
 ### 4.21 Thresholding
 
 ```{r}
-df = res_linear$corr_th[1:5, 1:5]
+row_ind = which(rownames(res_linear$corr_th) %in% paste0("T", 1:5))
+col_ind = which(colnames(res_linear$corr_th) %in% paste0("T", 1:5))
+df = res_linear$corr_th[row_ind, col_ind]
 df_p = data.frame(get_upper_tri(df)) %>%
   rownames_to_column("var1") %>%
   pivot_longer(cols = T1:T5, names_to = "var2", values_to = "value") %>%
@@ -352,22 +364,22 @@ df_p$var1 = factor(df_p$var1, levels = paste0("T", 1:5))
 df_p$var2 = factor(df_p$var2, levels = paste0("T", 1:5))
 
 p_secom1 = df_p %>%
-  ggplot(aes(var2, var1, fill = value)) +
+  ggplot(aes(var1, var2, fill = value)) +
   geom_tile(color = "black") +
   scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "white",
-                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       midpoint = 0, limit = c(-1, 1), space = "Lab", 
                        name = NULL) +
-  scale_x_discrete(drop = FALSE) +
-  scale_y_discrete(drop = FALSE) +
-  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
-  labs(x = NULL, y = NULL, title = "SECOM") +
+  scale_x_discrete(drop = FALSE, position = "top") +
+  scale_y_discrete(drop = FALSE, limits = rev, position = "right") +
+  geom_text(aes(var1, var2, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "SECOM (Pearson1)") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),
+  theme(axis.text.x = element_text(vjust = 1, size = 12, hjust = 1),
         axis.text.y = element_text(size = 12),
         plot.title = element_text(hjust = 0.5),
         panel.grid.major = element_blank(),
         axis.ticks = element_blank(),
-        legend.position = c(0.3, 0.8),
+        legend.position = c(0.7, 0.8),
         legend.direction = "horizontal")+
   guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
                                title.position = "top", title.hjust = 0.5)) +
@@ -379,7 +391,7 @@ p_secom1
 ### 4.22 Filtering
 
 ```{r}
-df = res_linear$corr_fl[1:5, 1:5]
+df = res_linear$corr_fl[row_ind, col_ind]
 df_p = data.frame(get_upper_tri(df)) %>%
   rownames_to_column("var1") %>%
   pivot_longer(cols = T1:T5, names_to = "var2", values_to = "value") %>%
@@ -389,22 +401,22 @@ df_p$var1 = factor(df_p$var1, levels = paste0("T", 1:5))
 df_p$var2 = factor(df_p$var2, levels = paste0("T", 1:5))
 
 p_secom2 = df_p %>%
-  ggplot(aes(var2, var1, fill = value)) +
+  ggplot(aes(var1, var2, fill = value)) +
   geom_tile(color = "black") +
   scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "white",
-                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       midpoint = 0, limit = c(-1, 1), space = "Lab", 
                        name = NULL) +
-  scale_x_discrete(drop = FALSE) +
-  scale_y_discrete(drop = FALSE) +
-  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
-  labs(x = NULL, y = NULL, title = "SECOM") +
+  scale_x_discrete(drop = FALSE, position = "top") +
+  scale_y_discrete(drop = FALSE, limits = rev, position = "right") +
+  geom_text(aes(var1, var2, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "SECOM (Pearson2)") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),
+  theme(axis.text.x = element_text(vjust = 1, size = 12, hjust = 1),
         axis.text.y = element_text(size = 12),
         plot.title = element_text(hjust = 0.5),
         panel.grid.major = element_blank(),
         axis.ticks = element_blank(),
-        legend.position = c(0.3, 0.8),
+        legend.position = c(0.7, 0.8),
         legend.direction = "horizontal")+
   guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
                                title.position = "top", title.hjust = 0.5)) +
@@ -418,7 +430,7 @@ p_secom2
 ```{r}
 p_dense_secom1 = p_dens(res_linear$corr_p)
 p_dense_secom1 = p_dense_secom1 + 
-  labs(title = "SECOM") +
+  labs(title = "SECOM (Pearson2)") +
   theme(plot.title = element_text(hjust = 0.5))
 
 ggplotly(p_dense_secom1)
@@ -429,7 +441,7 @@ ggplotly(p_dense_secom1)
 ### 4.31 Filtering
 
 ```{r}
-df = res_dist$dcorr_fl[1:5, 1:5]
+df = res_dist$dcorr_fl[row_ind, col_ind]
 df_p = data.frame(get_upper_tri(df)) %>%
   rownames_to_column("var1") %>%
   pivot_longer(cols = T1:T5, names_to = "var2", values_to = "value") %>%
@@ -439,22 +451,22 @@ df_p$var1 = factor(df_p$var1, levels = paste0("T", 1:5))
 df_p$var2 = factor(df_p$var2, levels = paste0("T", 1:5))
 
 p_secom3 = df_p %>%
-  ggplot(aes(var2, var1, fill = value)) +
+  ggplot(aes(var1, var2, fill = value)) +
   geom_tile(color = "black") +
   scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "white",
-                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       midpoint = 0, limit = c(-1, 1), space = "Lab", 
                        name = NULL) +
-  scale_x_discrete(drop = FALSE) +
-  scale_y_discrete(drop = FALSE) +
-  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
-  labs(x = NULL, y = NULL, title = "SECOM") +
+  scale_x_discrete(drop = FALSE, position = "top") +
+  scale_y_discrete(drop = FALSE, limits = rev, position = "right") +
+  geom_text(aes(var1, var2, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "SECOM (Distance)") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),
+  theme(axis.text.x = element_text(vjust = 1, size = 12, hjust = 1),
         axis.text.y = element_text(size = 12),
         plot.title = element_text(hjust = 0.5),
         panel.grid.major = element_blank(),
         axis.ticks = element_blank(),
-        legend.position = c(0.3, 0.8),
+        legend.position = c(0.7, 0.8),
         legend.direction = "horizontal")+
   guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
                                title.position = "top", title.hjust = 0.5)) +
@@ -468,7 +480,7 @@ p_secom3
 ```{r}
 p_dense_secom2 = p_dens(res_dist$dcorr_p)
 p_dense_secom2 = p_dense_secom2 + 
-  labs(title = "SECOM") +
+  labs(title = "SECOM (Distance)") +
   theme(plot.title = element_text(hjust = 0.5))
 
 ggplotly(p_dense_secom2)
@@ -477,7 +489,7 @@ ggplotly(p_dense_secom2)
 # 5. Outputs
 
 ```{r}
-p_main1 = ggarrange(ggmatrix_gtable(p_A), ggmatrix_gtable(p_O), 
+p_main1 = ggarrange(ggmatrix_gtable(p_a), ggmatrix_gtable(p_o), 
                     ncol = 2, nrow = 1, labels = c("a", "b"))
 p_main2 = ggarrange(p_sample, p_sparcc, p_secom3, ncol = 3,
                     labels = c("c", "d", "e"), common.legend = TRUE, 
@@ -486,11 +498,25 @@ p_main = ggarrange(p_main1, p_main2, ncol = 1, nrow = 2)
 ggsave(plot = p_main, "../images/main/illustrate.pdf", height = 12, width = 12)   
 ggsave(plot = p_main, "../images/main/illustrate.jpeg", height = 12, width = 12, dpi = 300)
 
-p_supp = ggarrange(p_dense_sample, p_dense_secom2, 
-                   ncol = 2, nrow = 1, labels = c("a", "b"),
-                   common.legend = TRUE, legend = "bottom")
-ggsave(plot = p_supp, "../images/supp/supp_p_value.pdf", height = 5, width = 10)   
-ggsave(plot = p_supp, "../images/supp/supp_p_value.jpeg", height = 5, width = 10, dpi = 300)
+df_p = data.frame(p = corr_sample_p[upper.tri(corr_sample_p)], method = "Pearson") %>%
+  bind_rows(
+    data.frame(p = res_dist$dcorr_p[upper.tri(res_dist$dcorr_p)], method = "SECOM (Distance)")
+  )
+df_line = data.frame(xintercept = c(0.01, 0.05),
+                     stringsAsFactors = FALSE)
+p_supp = df_p %>%
+  ggplot(aes(x = p, color = method)) +
+  scale_color_npg(name = NULL) +
+  stat_ecdf(geom = "point") +
+  geom_vline(xintercept = 0.005, 
+             linetype = "dashed", size = 1) +
+  labs(x = "P-value", y = "Cumulative density") +
+  scale_x_continuous(breaks = c(0.005, 0.25, 0.50, 0.75, 1.00)) +
+  theme_bw()
+p_supp
+
+ggsave(plot = p_supp, "../images/supp/supp_p_value.pdf", height = 5, width = 6.25)   
+ggsave(plot = p_supp, "../images/supp/supp_p_value.jpeg", height = 5, width = 6.25, dpi = 300)
 ```
 
 # Session information

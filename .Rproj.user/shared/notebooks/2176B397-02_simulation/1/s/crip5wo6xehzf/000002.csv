@@ -1,0 +1,12 @@
+"0","compare_linear = read_csv(""../outputs/concordance/linear_conc.csv"")
+"
+"1","[1m[1mRows: [1m[22m[34m[34m100[34m[39m [1m[1mColumns: [1m[22m[34m[34m12[34m[39m
+"
+"1","[36m--[39m [1m[1mColumn specification[1m[22m [36m---------------------------------------------------------------------------------------[39m
+[1mDelimiter:[22m "",""
+[32mdbl[39m (12): X1, X2, X3, X4, X5, X6, X7, X8, X9, X10, X11, X12
+"
+"1","
+[36mi[39m Use [38;5;235m[48;5;253m[38;5;235m[48;5;253m`spec()`[48;5;253m[38;5;235m[49m[39m to retrieve the full column specification for this data.
+[36mi[39m Specify the column types or set [38;5;235m[48;5;253m[38;5;235m[48;5;253m`show_col_types = FALSE`[48;5;253m[38;5;235m[49m[39m to quiet this message.
+"

@@ -1,0 +1,1185 @@
+---
+title: "Real Data Applications: Forehead and Palm Microbiome Data"
+author: 
+  - Huang Lin$^1$
+  - $^1$NICHD, 6710B Rockledge Dr, Bethesda, MD 20892
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document: 
+    toc: true
+    theme: united
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, 
+                      message = FALSE, comment = NA,
+                      fig.width = 6.25, fig.height = 5)
+options(qwraps2_markup = "markdown",
+        qwraps2_frmt_digits = 2)
+
+library(biomformat)
+library(tidyverse)
+library(microbiome)
+library(magrittr)
+library(qwraps2)
+library(ggpubr)
+library(compositions)
+library(SpiecEasi)
+
+source("../programs/00_secom.R")
+```
+
+```{r helper}
+get_upper_tri = function(cormat){
+    cormat[lower.tri(cormat)] = NA
+    diag(cormat) = NA
+    return(cormat)
+}
+
+vlr = function(mat, x) {
+  lr = log(mat/x)
+  vlr = apply(lr, 2, var)
+  return(vlr)
+}
+
+hard_thresh = function(R, th){
+  R_th = R
+  R_th[abs(R) <= th] = 0
+  return(R_th)
+}
+
+p_filter = function(mat, mat_p, max_p){
+  ind_p = mat_p
+  ind_p[mat_p > max_p] = 0
+  ind_p[mat_p <= max_p] = 1
+  
+  mat_filter = mat * ind_p
+  return(mat_filter)
+}
+```
+
+# 1. Data import {.tabset}
+
+## Palm data
+
+```{r}
+# Metadata
+palm_meta = read_tsv("../data/body_sites/palm_meta.txt")
+palm_meta = palm_meta %>%
+  select(sample_name, host_subject_id, control, weeknumber, bodysite, age, 
+         gender, bmi, raceethnicity, antibiotic_disturbance, country, diet, university) %>%
+  filter(control == FALSE,
+         antibiotic_disturbance == FALSE,
+         weeknumber == 1)
+sample_name = palm_meta$sample_name
+subj_name = palm_meta$host_subject_id
+
+# OTU table
+biom_palm = read_biom("../data/body_sites/palm_otu.biom")
+palm_otu = as(biom_data(biom_palm), "matrix")
+col_ind = match(sample_name, colnames(palm_otu))
+palm_otu = palm_otu[, col_ind[!is.na(col_ind)]]
+colnames(palm_otu) = subj_name[which(!is.na(col_ind))]
+
+# Taxonomy
+palm_tax = read_tsv("../data/body_sites/palm_taxonomy.tsv")
+otu_id = palm_tax$`Feature ID`
+palm_tax = data.frame(palm_tax[, - c(1, 3)], row.names = otu_id)
+palm_tax = palm_tax %>% 
+  separate(col = Taxon, 
+           into = c("Kingdom", "Phylum", "Class", "Order", 
+                    "Family", "Genus", "Species"),
+           sep = ";") %>%
+  rowwise() %>%
+  dplyr::mutate_all(function(x) strsplit(x, "__")[[1]][2]) %>%
+  dplyr::mutate_all(function(x) gsub("\\[|\\]", "", x)) %>%
+  mutate(Species = ifelse(!is.na(Species) & !is.na(Genus),
+                          paste(strsplit(Genus, "")[[1]][1], Species, sep = "."),
+                          NA)) %>%
+  ungroup()
+palm_tax = as.matrix(palm_tax)
+rownames(palm_tax) = otu_id
+palm_tax[palm_tax == ""] = NA
+
+# OTU data
+PALM_OTU = otu_table(palm_otu, taxa_are_rows = TRUE)
+PALM_META = sample_data(palm_meta)
+sample_names(PALM_META) = palm_meta$host_subject_id
+PALM_TAX = tax_table(palm_tax)
+palm_otu_data = phyloseq(PALM_OTU, PALM_TAX, PALM_META)
+```
+
+## Forehead data
+
+```{r}
+# Metadata
+forehead_meta = read_tsv("../data/body_sites/forehead_meta.txt")
+forehead_meta = forehead_meta %>%
+  select(sample_name, control, weeknumber, bodysite, age, gender, bmi, 
+         raceethnicity, antibiotic_disturbance, country, diet, university) %>%
+  filter(control == FALSE,
+         antibiotic_disturbance == FALSE,
+         weeknumber == 1) %>%
+  arrange(control, weeknumber, bodysite, age, gender, bmi, 
+          raceethnicity, antibiotic_disturbance, country, diet, university)
+
+palm_meta = palm_meta %>%
+  arrange(control, weeknumber, bodysite, age, gender, bmi, 
+          raceethnicity, antibiotic_disturbance, country, diet, university)
+
+forehead_meta = forehead_meta %>%
+  mutate(host_subject_id = palm_meta$host_subject_id) %>%
+  select(sample_name, host_subject_id, everything())
+
+sample_name = forehead_meta$sample_name
+subj_name = forehead_meta$host_subject_id
+  
+# OTU table
+biom_forehead = read_biom("../data/body_sites/forehead_otu.biom")
+forehead_otu = as(biom_data(biom_forehead), "matrix")
+col_ind = match(sample_name, colnames(forehead_otu))
+forehead_otu = forehead_otu[, col_ind[!is.na(col_ind)]]
+colnames(forehead_otu) = subj_name[which(!is.na(col_ind))]
+
+# Taxonomy
+forehead_tax = read_tsv("../data/body_sites/forehead_taxonomy.tsv")
+otu_id = forehead_tax$`Feature ID`
+forehead_tax = data.frame(forehead_tax[, - c(1, 3)], row.names = otu_id)
+forehead_tax = forehead_tax %>% 
+  separate(col = Taxon, 
+           into = c("Kingdom", "Phylum", "Class", "Order", 
+                    "Family", "Genus", "Species"),
+           sep = ";") %>%
+  rowwise() %>%
+  dplyr::mutate_all(function(x) strsplit(x, "__")[[1]][2]) %>%
+  dplyr::mutate_all(function(x) gsub("\\[|\\]", "", x)) %>%
+  mutate(Species = ifelse(!is.na(Species) & !is.na(Genus),
+                          paste(strsplit(Genus, "")[[1]][1], Species, sep = "."),
+                          NA)) %>%
+  ungroup()
+forehead_tax = as.matrix(forehead_tax)
+rownames(forehead_tax) = otu_id
+forehead_tax[forehead_tax == ""] = NA
+
+# OTU data
+FOREHEAD_OTU = otu_table(forehead_otu, taxa_are_rows = TRUE)
+FOREHEAD_META = sample_data(forehead_meta)
+sample_names(FOREHEAD_META) = forehead_meta$host_subject_id
+FOREHEAD_TAX = tax_table(forehead_tax)
+forehead_otu_data = phyloseq(FOREHEAD_OTU, FOREHEAD_TAX, FOREHEAD_META)
+```
+
+## Subset forehead and palm data to common subjects
+
+```{r}
+palm_subj = sample_names(palm_otu_data)
+forehead_subj = sample_names(forehead_otu_data)
+common_subj = intersect(palm_subj, forehead_subj)
+
+palm_otu_data = subset_samples(palm_otu_data, host_subject_id %in% common_subj)
+forehead_otu_data = subset_samples(forehead_otu_data, host_subject_id %in% common_subj)
+
+# Taxonomy cleaning
+# Palm
+ind1 = data.frame(palm_tax) %>%
+  rownames_to_column("otu_id") %>%
+  filter(grepl("Clostridium", Genus)) %>%
+  .$otu_id
+
+ind2 = data.frame(palm_tax) %>%
+  rownames_to_column("otu_id") %>%
+  filter(grepl("Ruminococcus", Genus)) %>%
+  .$otu_id
+
+ind3 = data.frame(palm_tax) %>%
+  rownames_to_column("otu_id") %>%
+  filter(grepl("Prevotella", Genus)) %>%
+  .$otu_id
+
+ind4 = data.frame(palm_tax) %>%
+  rownames_to_column("otu_id") %>%
+  filter(grepl("Bacteroides", Genus)) %>%
+  .$otu_id
+
+palm_otu_data2 = merge_taxa(palm_otu_data, 
+                           taxa_names(palm_otu_data)[taxa_names(palm_otu_data) %in% ind1], 
+                           1)
+palm_otu_data2 = merge_taxa(palm_otu_data2, 
+                           taxa_names(palm_otu_data2)[taxa_names(palm_otu_data2) %in% ind2], 
+                           1)
+palm_otu_data2 = merge_taxa(palm_otu_data2, 
+                           taxa_names(palm_otu_data2)[taxa_names(palm_otu_data2) %in% ind3], 
+                           1)
+palm_otu_data2 = merge_taxa(palm_otu_data2, 
+                           taxa_names(palm_otu_data2)[taxa_names(palm_otu_data2) %in% ind4], 
+                           1)
+palm_otu_data2 = phyloseq(otu_table(abundances(palm_otu_data2), taxa_are_rows = TRUE), 
+                          PALM_TAX, PALM_META)
+
+# forehead
+ind1 = data.frame(forehead_tax) %>%
+  rownames_to_column("otu_id") %>%
+  filter(grepl("Clostridium", Genus)) %>%
+  .$otu_id
+
+ind2 = data.frame(forehead_tax) %>%
+  rownames_to_column("otu_id") %>%
+  filter(grepl("Ruminococcus", Genus)) %>%
+  .$otu_id
+
+ind3 = data.frame(forehead_tax) %>%
+  rownames_to_column("otu_id") %>%
+  filter(grepl("Prevotella", Genus)) %>%
+  .$otu_id
+
+ind4 = data.frame(forehead_tax) %>%
+  rownames_to_column("otu_id") %>%
+  filter(grepl("Pseudomonas", Genus)) %>%
+  .$otu_id
+
+forehead_otu_data2 = merge_taxa(forehead_otu_data, 
+                              taxa_names(forehead_otu_data)[taxa_names(forehead_otu_data) %in% ind1], 
+                              1)
+forehead_otu_data2 = merge_taxa(forehead_otu_data2, 
+                              taxa_names(forehead_otu_data2)[taxa_names(forehead_otu_data2) %in% ind2], 
+                              1)
+forehead_otu_data2 = merge_taxa(forehead_otu_data2, 
+                              taxa_names(forehead_otu_data2)[taxa_names(forehead_otu_data2) %in% ind3],
+                              1)
+forehead_otu_data2 = merge_taxa(forehead_otu_data2, 
+                              taxa_names(forehead_otu_data2)[taxa_names(forehead_otu_data2) %in% ind4], 
+                              1)
+forehead_otu_data2 = phyloseq(otu_table(abundances(forehead_otu_data2), taxa_are_rows = TRUE), 
+                            FOREHEAD_TAX, FOREHEAD_META)
+
+palm_otu_data2 = subset_samples(palm_otu_data2, host_subject_id %in% common_subj)
+forehead_otu_data2 = subset_samples(forehead_otu_data2, host_subject_id %in% common_subj)
+
+# Aggregate to genus level
+palm_genus_data = aggregate_taxa(palm_otu_data2, "Genus")
+palm_genus_data = subset_taxa(palm_genus_data, Genus != "Unknown")
+forehead_genus_data = aggregate_taxa(forehead_otu_data2, "Genus")
+forehead_genus_data = subset_taxa(forehead_genus_data, Genus != "Unknown")
+
+# Discard rare taxa
+palm_core_genus = core_members(microbiome::transform(palm_genus_data, "compositional"), detection = 0, prevalence = 0.5)
+forehead_core_genus = core_members(microbiome::transform(forehead_genus_data, "compositional"), detection = 0, prevalence = 0.5)
+palm_genus_data1 = subset_taxa(palm_genus_data, Genus %in% palm_core_genus)
+forehead_genus_data1 = subset_taxa(forehead_genus_data, Genus %in% forehead_core_genus)
+
+# Select top taxa for visualization
+palm_top_genus = top_taxa(palm_genus_data1, n = 10)
+forehead_top_genus = top_taxa(forehead_genus_data1, n = 10)
+top_genus = intersect(forehead_top_genus, palm_top_genus)[1:5]
+palm_genus_data2 = subset_taxa(palm_genus_data, Genus %in% top_genus)
+forehead_genus_data2 = subset_taxa(forehead_genus_data, Genus %in% top_genus)
+```
+
+# 2. Data overview {.tabset}
+
+1. The number of OTUs in forehead: `r ntaxa(forehead_otu_data)`, in palm: `r ntaxa(palm_otu_data)`
+
+2. The number of genera in forehead: `r ntaxa(forehead_genus_data)`, in palm: `r ntaxa(palm_genus_data)`
+
+## Demographic summary
+
+```{r, results = "asis"}
+summary_template =
+  list("Age" =
+       list("min" = ~ min(age, na.rm = TRUE),
+            "max" = ~ max(age, na.rm = TRUE),
+            "mean (sd)" = ~ qwraps2::mean_sd(age, na_rm = TRUE, show_n = "never")),
+       "BMI" =
+       list("min" = ~ min(bmi, na.rm = TRUE),
+            "max" = ~ max(bmi, na.rm = TRUE),
+            "mean (sd)" = ~ qwraps2::mean_sd(bmi, na_rm = TRUE, show_n = "never")),
+       "Gender" =
+       list("F" = ~ n_perc0(gender == "female", na_rm = TRUE),
+            "M" = ~ n_perc0(gender == "male", na_rm = TRUE),
+            "NA" = ~ n_perc0(is.na(gender))),
+       "Ethnicity" =
+       list("African American" = ~ n_perc0(raceethnicity == "african.american", na_rm = TRUE),
+            "Asian/Pacific island" = ~ n_perc0(raceethnicity == "asian.or.pacific.islander", na_rm = TRUE),
+            "Caucasian" = ~ n_perc0(raceethnicity == "caucasian", na_rm = TRUE),
+            "Caucasian/Asian" = ~ n_perc0(raceethnicity == "caucasian.asian", na_rm = TRUE),
+            "Caucasian/Hispanic" = ~ n_perc0(raceethnicity == "half.white.hispanic", na_rm = TRUE),
+            "Hispanic" = ~ n_perc0(raceethnicity == "hispanic", na_rm = TRUE),
+            "Others" = ~ n_perc0(grepl(paste(c("multi.racial", "other"), collapse = "|"), raceethnicity), na_rm = TRUE),
+            "NA" = ~ n_perc0(is.na(raceethnicity)))
+       )
+palm_summary = summary_table(meta(palm_otu_data), summary_template)
+palm_summary
+```
+
+## Library sizes
+
+```{r}
+lib_forehead = sample_sums(forehead_otu_data)
+lib_palm = sample_sums(palm_otu_data)
+
+df_lib = data.frame(value = c(lib_forehead, lib_palm),
+                    site = c(rep("Forehead", length(lib_forehead)),
+                             rep("Palm", length(lib_palm))))
+
+p_lib = df_lib %>%
+  ggboxplot(x = "site", y = "value", color = "site", palette = "npg") + 
+  stat_compare_means(label.x =1.5, method = "wilcox.test") +
+  scale_y_continuous(labels = scales::comma)
+
+p_lib2 = ggpar(p = p_lib, xlab = "", ylab = "Library Size", legend.title = "")
+p_lib2
+```
+
+# 3. SECOM results {.tabset}
+
+## Combine forehead and palm data
+
+```{r}
+pseqs = list(forehead = c(forehead_otu_data, forehead_genus_data2),
+             palm = c(palm_otu_data, palm_genus_data2))
+pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
+wins_quant = c(0, 1); method = "pearson"; soft = FALSE; thresh_len = 20
+n_cv = 10; seed = 123; thresh_hard = 0.3; max_p_linear = 0.001; n_cl = 5
+
+res_linear = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                          wins_quant, method, soft, thresh_len, n_cv, 
+                          seed, thresh_hard, max_p_linear, n_cl)
+
+R = 1000; seed = 123; max_p_dist = 0.001
+res_dist = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                      wins_quant, R, seed, max_p_dist, n_cl)
+
+# Data organization
+# Linear relationships
+# corr_linear = res_linear$corr_th
+corr_linear = res_linear$corr_fl
+cooccur_linear = res_linear$mat_cooccur
+
+# Filter by co-occurrence
+overlap = 10
+corr_linear[cooccur_linear < overlap] = 0
+
+df_linear = data.frame(get_upper_tri(corr_linear)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2),
+         metric = "Pearson")
+
+# Distance relationships
+corr_dist = res_dist$dcorr_fl
+cooccur_dist = res_dist$mat_cooccur
+
+# Filter by co-occurrence
+overlap = 10
+corr_dist[cooccur_dist < overlap] = 0
+
+df_dist = data.frame(get_upper_tri(corr_dist)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2),
+         metric = "Distance")
+
+# Merge datasets
+df_secom = df_linear %>%
+  bind_rows(
+    df_dist
+  )
+genus_level = sort(union(df_secom$var1, df_secom$var2))
+genus_label = sapply(genus_level, function(x) strsplit(x, " - ")[[1]][2])
+txt_color = ifelse(grepl("forehead", genus_level), "#1B9E77", "#D95F02")
+df_secom$var1 = factor(df_secom$var1, levels = genus_level)
+df_secom$var2 = factor(df_secom$var2, levels = genus_level)
+df_secom$metric = factor(df_secom$metric, levels = c("Pearson", "Distance"))
+
+heat_secom = df_secom %>%
+  ggplot(aes(var2, var1, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, labels = genus_label) +
+  scale_y_discrete(drop = FALSE, labels = genus_label) +
+  facet_grid(.~metric) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "Forehead and Palm") +
+  guides(fill = guide_colorbar(barwidth = 1, barheight = 7, 
+                               title.position = "right")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
+                                   face = "italic", color = txt_color),
+        axis.text.y = element_text(size = 12, face = "italic", color = txt_color),
+        strip.text.x = element_text(size = 14),
+        strip.text.y = element_text(size = 14),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 15),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank()) +
+  coord_fixed()
+```
+
+## Forehead data
+
+```{r}
+pseqs = list(c(forehead_otu_data, forehead_genus_data2))
+pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
+wins_quant = c(0, 1); method = "pearson"; soft = FALSE; thresh_len = 20
+n_cv = 10; seed = 123; thresh_hard = 0.3; max_p_linear = 0.001; n_cl = 5
+
+res_linear1 = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                           wins_quant, method, soft, thresh_len, n_cv, 
+                           seed, thresh_hard, max_p_linear, n_cl)
+
+R = 1000; seed = 123; max_p_dist = 0.001
+res_dist1 = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                       wins_quant, R, seed, max_p_dist, n_cl)
+
+# Data organization
+# Linear relationships
+# corr_linear = res_linear1$corr_th
+corr_linear = res_linear1$corr_fl
+cooccur_linear = res_linear1$mat_cooccur
+
+# Filter by co-occurrence
+overlap = 10
+corr_linear[cooccur_linear < overlap] = 0
+
+df_linear1 = data.frame(get_upper_tri(corr_linear)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2),
+         metric = "Pearson")
+
+# Distance relationships
+corr_dist = res_dist1$dcorr_fl
+cooccur_dist = res_dist1$mat_cooccur
+
+# Filter by co-occurrence
+overlap = 10
+corr_dist[cooccur_dist < overlap] = 0
+
+df_dist1 = data.frame(get_upper_tri(corr_dist)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2),
+         metric = "Distance")
+
+# Merge datasets
+df_secom1 = df_linear1 %>%
+  bind_rows(
+    df_dist1
+  )
+genus_level = sort(union(df_secom1$var1, df_secom1$var2))
+df_secom1$var1 = factor(df_secom1$var1, levels = genus_level)
+df_secom1$var2 = factor(df_secom1$var2, levels = genus_level)
+df_secom1$metric = factor(df_secom1$metric, levels = c("Pearson", "Distance"))
+
+heat_secom1 = df_secom1 %>%
+  ggplot(aes(var2, var1, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE) +
+  scale_y_discrete(drop = FALSE) +
+  facet_grid(.~metric) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "Forehead") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
+                                   face = "italic", color = "#1B9E77"),
+        axis.text.y = element_text(size = 12, face = "italic", color = "#1B9E77"),
+        strip.text.x = element_text(size = 14),
+        strip.text.y = element_text(size = 14),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 15),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = "none") +
+  coord_fixed()
+```
+
+## Palm data
+
+```{r}
+pseqs = list(c(palm_otu_data, palm_genus_data2))
+pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
+wins_quant = c(0, 1); method = "pearson"; soft = FALSE; thresh_len = 20
+n_cv = 10; seed = 123; thresh_hard = 0.3; max_p_linear = 0.001; n_cl = 5
+
+res_linear2 = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                           wins_quant, method, soft, thresh_len, n_cv, 
+                           seed, thresh_hard, max_p_linear, n_cl)
+
+R = 1000; seed = 123; max_p_dist = 0.001
+res_dist2 = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                       wins_quant, R, seed, max_p_dist, n_cl)
+
+# Data organization
+# Linear relationships
+# corr_linear = res_linear2$corr_th
+corr_linear = res_linear2$corr_fl
+cooccur_linear = res_linear2$mat_cooccur
+
+# Filter by co-occurrence
+overlap = 10
+corr_linear[cooccur_linear < overlap] = 0
+
+df_linear2 = data.frame(get_upper_tri(corr_linear)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2),
+         metric = "Pearson")
+
+# Distance relationships
+corr_dist = res_dist2$dcorr_fl
+cooccur_dist = res_dist2$mat_cooccur
+
+# Filter by co-occurrence
+overlap = 10
+corr_dist[cooccur_dist < overlap] = 0
+
+df_dist2 = data.frame(get_upper_tri(corr_dist)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2),
+         metric = "Distance")
+
+# Merge datasets
+df_secom2 = df_linear2 %>%
+  bind_rows(
+    df_dist2
+  )
+genus_level = sort(union(df_secom2$var1, df_secom2$var2))
+df_secom2$var1 = factor(df_secom2$var1, levels = genus_level)
+df_secom2$var2 = factor(df_secom2$var2, levels = genus_level)
+df_secom2$metric = factor(df_secom2$metric, levels = c("Pearson", "Distance"))
+
+heat_secom2 = df_secom2 %>%
+  ggplot(aes(var2, var1, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE) +
+  scale_y_discrete(drop = FALSE) +
+  facet_grid(.~metric) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "Palm") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
+                                   face = "italic", color = "#D95F02"),
+        axis.text.y = element_text(size = 12, face = "italic", color = "#D95F02"),
+        strip.text.x = element_text(size = 14),
+        strip.text.y = element_text(size = 14),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 15),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = "none") +
+  coord_fixed()
+```
+
+## Heatmap
+
+```{r, fig.height=14, fig.width=12}
+p_secom = ggarrange(heat_secom,
+                    ggarrange(heat_secom1, heat_secom2, ncol = 2, labels = c("b", "c")),
+                    nrow = 2, labels = "a")
+p_secom
+ggsave(plot = p_secom, "../images/main/body_sites_secom.pdf", height = 14, width = 12)
+ggsave(plot = p_secom, "../images/main/body_sites_secom.jpeg", height = 14, width = 12, dpi = 300)
+```
+
+# 4. Results of other methods
+
+```{r}
+O1 = abundances(forehead_genus_data1)
+O2 = abundances(palm_genus_data1)
+rownames(O1) = paste("forehead", rownames(O1), sep = " - ")
+rownames(O2) = paste("palm", rownames(O2), sep = " - ")
+d1 = nrow(O1)
+d2 = nrow(O2)
+O = rbind(O1, O2)
+
+forehead_top_genus = sort(paste("forehead", top_genus, sep = " - "))
+palm_top_genus = sort(paste("palm", top_genus, sep = " - "))
+top_genus2 = sort(c(palm_top_genus, forehead_top_genus))
+```
+
+## 4.1 Sample Pearson
+
+```{r, fig.height=6, fig.width=6}
+o = log(O)
+o[is.infinite(o)] = NA
+
+res_sample = Hmisc::rcorr(t(o), type = "pearson")
+corr_sample = res_sample$r
+corr_sample_p = res_sample$P
+diag(corr_sample_p) = 0
+R_hat_sample = p_filter(corr_sample, corr_sample_p, max_p = 0.001)
+
+col_ind = match(top_genus2, colnames(R_hat_sample))
+R_hat_sample = R_hat_sample[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+
+df_sample = data.frame(get_upper_tri(R_hat_sample)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2))
+genus_level = sort(union(df_sample$var1, df_sample$var2))
+genus_label = sapply(genus_level, function(x) strsplit(x, " - ")[[1]][2])
+txt_color = ifelse(grepl("forehead", genus_level), "#1B9E77", "#D95F02")
+df_sample$var1 = factor(df_sample$var1, levels = genus_level)
+df_sample$var2 = factor(df_sample$var2, levels = genus_level)
+
+heat_sample = df_sample %>%
+  ggplot(aes(var2, var1, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, labels = genus_label) +
+  scale_y_discrete(drop = FALSE, labels = genus_label) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "Forehead and Palm") +
+  guides(fill = guide_colorbar(barwidth = 1, barheight = 7, 
+                               title.position = "right")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
+                                   face = "italic", color = txt_color),
+        axis.text.y = element_text(size = 12, face = "italic", color = txt_color),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 15),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank()) +
+  coord_fixed()
+heat_sample
+ggsave(plot = heat_sample, "../images/supp/supp_body_sites_sample.pdf", height = 6, width = 6)
+ggsave(plot = heat_sample, "../images/supp/supp_body_sites_sample.jpeg", height = 6, width = 6, dpi = 300)
+```
+
+## 4.2 Proportionality {.tabset}
+
+### Combine forehead and palm data
+
+```{r}
+Rel = sweep(O, 2, colSums(O, na.rm = TRUE), "/")
+Rel_clr = as.data.frame(clr(t(Rel)))
+Rel_clr_var = apply(Rel_clr, 2, var) 
+Rel_vlr = apply(t(Rel), 2, function(x) vlr(t(Rel), x))
+Rel_phi = sweep(Rel_vlr, 2, Rel_clr_var, FUN = "/")
+
+R_hat_prop = matrix(NA, nrow = d1 + d2, ncol = d1 + d2)
+colnames(R_hat_prop) = colnames(Rel_phi)
+rownames(R_hat_prop) = rownames(Rel_phi)
+for (i in seq_len(d1 + d2)) {
+  for (j in seq(i, d1 + d2)) {
+    R_hat_prop[i, j] = min(c(Rel_phi[i, j], Rel_phi[j, i]))
+  }
+}
+R_hat_prop[lower.tri(R_hat_prop)] = t(R_hat_prop)[lower.tri(R_hat_prop)]
+R_hat_prop[R_hat_prop > quantile(R_hat_prop, 0.05, na.rm = TRUE)] = NA
+R_hat_prop = 1 - R_hat_prop
+R_hat_prop[is.na(R_hat_prop)] = 0
+
+col_ind = match(top_genus2, colnames(R_hat_prop))
+R_hat_prop = R_hat_prop[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+
+df_prop = data.frame(get_upper_tri(R_hat_prop)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2))
+genus_level = sort(union(df_prop$var1, df_prop$var2))
+genus_label = sapply(genus_level, function(x) strsplit(x, " - ")[[1]][2])
+txt_color = ifelse(grepl("forehead", genus_level), "#1B9E77", "#D95F02")
+df_prop$var1 = factor(df_prop$var1, levels = genus_level)
+df_prop$var2 = factor(df_prop$var2, levels = genus_level)
+
+heat_prop = df_prop %>%
+  ggplot(aes(var2, var1, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, labels = genus_label) +
+  scale_y_discrete(drop = FALSE, labels = genus_label) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "Forehead and Palm") +
+  guides(fill = guide_colorbar(barwidth = 1, barheight = 7, 
+                               title.position = "right")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
+                                   face = "italic", color = txt_color),
+        axis.text.y = element_text(size = 12, face = "italic", color = txt_color),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 15),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank()) +
+  coord_fixed()
+```
+
+### Run forehead and palm data separately
+
+```{r}
+# Forehead
+Rel = sweep(O1, 2, colSums(O1, na.rm = TRUE), "/")
+Rel_clr = as.data.frame(clr(t(Rel)))
+Rel_clr_var = apply(Rel_clr, 2, var) 
+Rel_vlr = apply(t(Rel), 2, function(x) vlr(t(Rel), x))
+Rel_phi = sweep(Rel_vlr, 2, Rel_clr_var, FUN = "/")
+
+R_hat_prop1 = matrix(NA, nrow = d1, ncol = d1)
+colnames(R_hat_prop1) = colnames(Rel_phi)
+rownames(R_hat_prop1) = rownames(Rel_phi)
+for (i in seq_len(d1)) {
+  for (j in seq(i, d1)) {
+    R_hat_prop1[i, j] = min(c(Rel_phi[i, j], Rel_phi[j, i]))
+  }
+}
+R_hat_prop1[lower.tri(R_hat_prop1)] = t(R_hat_prop1)[lower.tri(R_hat_prop1)]
+R_hat_prop1[R_hat_prop1 > quantile(R_hat_prop1, 0.05, na.rm = TRUE)] = NA
+R_hat_prop1 = 1 - R_hat_prop1
+R_hat_prop1[is.na(R_hat_prop1)] = 0
+
+col_ind = match(forehead_top_genus, colnames(R_hat_prop1))
+R_hat_prop1 = R_hat_prop1[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+
+df_prop1 = data.frame(get_upper_tri(R_hat_prop1)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2))
+genus_level = sort(union(df_prop1$var1, df_prop1$var2))
+genus_label = sapply(genus_level, function(x) strsplit(x, " - ")[[1]][2])
+df_prop1$var1 = factor(df_prop1$var1, levels = genus_level)
+df_prop1$var2 = factor(df_prop1$var2, levels = genus_level)
+
+heat_prop1 = df_prop1 %>%
+  ggplot(aes(var2, var1, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, labels = genus_label) +
+  scale_y_discrete(drop = FALSE, labels = genus_label) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "Forehead") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
+                                   face = "italic", color = "#1B9E77"),
+        axis.text.y = element_text(size = 12, face = "italic", color = "#1B9E77"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 15),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = "none") +
+  coord_fixed()
+
+# Palm
+Rel = sweep(O2, 2, colSums(O2, na.rm = TRUE), "/")
+Rel_clr = as.data.frame(clr(t(Rel)))
+Rel_clr_var = apply(Rel_clr, 2, var) 
+Rel_vlr = apply(t(Rel), 2, function(x) vlr(t(Rel), x))
+Rel_phi = sweep(Rel_vlr, 2, Rel_clr_var, FUN = "/")
+
+R_hat_prop2 = matrix(NA, nrow = d2, ncol = d2)
+colnames(R_hat_prop2) = colnames(Rel_phi)
+rownames(R_hat_prop2) = rownames(Rel_phi)
+for (i in seq_len(d2)) {
+  for (j in seq(i, d2)) {
+    R_hat_prop2[i, j] = min(c(Rel_phi[i, j], Rel_phi[j, i]))
+  }
+}
+R_hat_prop2[lower.tri(R_hat_prop2)] = t(R_hat_prop2)[lower.tri(R_hat_prop2)]
+R_hat_prop2[R_hat_prop2 > quantile(R_hat_prop2, 0.05, na.rm = TRUE)] = NA
+R_hat_prop2 = 1 - R_hat_prop2
+R_hat_prop2[is.na(R_hat_prop2)] = 0
+
+col_ind = match(palm_top_genus, colnames(R_hat_prop2))
+R_hat_prop2 = R_hat_prop2[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+
+df_prop2 = data.frame(get_upper_tri(R_hat_prop2)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2))
+genus_level = sort(union(df_prop2$var1, df_prop2$var2))
+genus_label = sapply(genus_level, function(x) strsplit(x, " - ")[[1]][2])
+df_prop2$var1 = factor(df_prop2$var1, levels = genus_level)
+df_prop2$var2 = factor(df_prop2$var2, levels = genus_level)
+
+heat_prop2 = df_prop2 %>%
+  ggplot(aes(var2, var1, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, labels = genus_label) +
+  scale_y_discrete(drop = FALSE, labels = genus_label) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "Palm") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
+                                   face = "italic", color = "#D95F02"),
+        axis.text.y = element_text(size = 12, face = "italic", color = "#D95F02"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 15),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = "none") +
+  coord_fixed()
+```
+
+### Heatmap
+
+```{r, fig.height=10, fig.width=10}
+p_prop = ggarrange(heat_prop,
+                   ggarrange(heat_prop1, heat_prop2, ncol = 2, labels = c("b", "c")),
+                   nrow = 2, labels = "a")
+p_prop
+ggsave(plot = p_prop, "../images/supp/supp_body_sites_prop.pdf", height = 10, width = 10)
+ggsave(plot = p_prop, "../images/supp/supp_body_sites_prop.jpeg", height = 10, width = 10, dpi = 300)
+```
+
+## 4.3 SparCC results {.tabset}
+
+### Combine forehead and palm data
+
+```{r}
+set.seed(123)
+R_hat_sparcc = sparcc(t(O))$Cor
+dimnames(R_hat_sparcc) = list(rownames(O), rownames(O))
+
+R_hat_sparcc = hard_thresh(R_hat_sparcc, 0.3)
+col_ind = match(top_genus2, colnames(R_hat_sparcc))
+R_hat_sparcc = R_hat_sparcc[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+
+df_sparcc = data.frame(get_upper_tri(R_hat_sparcc)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2))
+genus_level = sort(union(df_sparcc$var1, df_sparcc$var2))
+genus_label = sapply(genus_level, function(x) strsplit(x, " - ")[[1]][2])
+txt_color = ifelse(grepl("forehead", genus_level), "#1B9E77", "#D95F02")
+df_sparcc$var1 = factor(df_sparcc$var1, levels = genus_level)
+df_sparcc$var2 = factor(df_sparcc$var2, levels = genus_level)
+
+heat_sparcc = df_sparcc %>%
+  ggplot(aes(var2, var1, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, labels = genus_label) +
+  scale_y_discrete(drop = FALSE, labels = genus_label) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "Forehead and Palm") +
+  guides(fill = guide_colorbar(barwidth = 1, barheight = 7, 
+                               title.position = "right")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
+                                   face = "italic", color = txt_color),
+        axis.text.y = element_text(size = 12, face = "italic", color = txt_color),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 15),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank()) +
+  coord_fixed()
+```
+
+### Run forehead and palm data separately
+
+```{r}
+# Forehead
+set.seed(123)
+R_hat_sparcc1 = sparcc(t(O1))$Cor
+dimnames(R_hat_sparcc1) = list(rownames(O1), rownames(O1))
+
+R_hat_sparcc1 = hard_thresh(R_hat_sparcc1, 0.3)
+col_ind = match(forehead_top_genus, colnames(R_hat_sparcc1))
+R_hat_sparcc1 = R_hat_sparcc1[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+
+df_sparcc1 = data.frame(get_upper_tri(R_hat_sparcc1)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2))
+genus_level = sort(union(df_sparcc1$var1, df_sparcc1$var2))
+genus_label = sapply(genus_level, function(x) strsplit(x, " - ")[[1]][2])
+df_sparcc1$var1 = factor(df_sparcc1$var1, levels = genus_level)
+df_sparcc1$var2 = factor(df_sparcc1$var2, levels = genus_level)
+
+heat_sparcc1 = df_sparcc1 %>%
+  ggplot(aes(var2, var1, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, labels = genus_label) +
+  scale_y_discrete(drop = FALSE, labels = genus_label) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "Forehead") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
+                                   face = "italic", color = "#1B9E77"),
+        axis.text.y = element_text(size = 12, face = "italic", color = "#1B9E77"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 15),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = "none") +
+  coord_fixed()
+
+# Palm
+set.seed(123)
+R_hat_sparcc2 = sparcc(t(O2))$Cor
+dimnames(R_hat_sparcc2) = list(rownames(O2), rownames(O2))
+
+R_hat_sparcc2 = hard_thresh(R_hat_sparcc2, 0.3)
+col_ind = match(palm_top_genus, colnames(R_hat_sparcc2))
+R_hat_sparcc2 = R_hat_sparcc2[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+
+df_sparcc2 = data.frame(get_upper_tri(R_hat_sparcc2)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2))
+genus_level = sort(union(df_sparcc2$var1, df_sparcc2$var2))
+genus_label = sapply(genus_level, function(x) strsplit(x, " - ")[[1]][2])
+df_sparcc2$var1 = factor(df_sparcc2$var1, levels = genus_level)
+df_sparcc2$var2 = factor(df_sparcc2$var2, levels = genus_level)
+
+heat_sparcc2 = df_sparcc2 %>%
+  ggplot(aes(var2, var1, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, labels = genus_label) +
+  scale_y_discrete(drop = FALSE, labels = genus_label) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "Palm") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
+                                   face = "italic", color = "#D95F02"),
+        axis.text.y = element_text(size = 12, face = "italic", color = "#D95F02"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = "none") +
+  coord_fixed()
+```
+
+### Heatmap
+
+```{r, fig.height=10, fig.width=10}
+p_sparcc = ggarrange(heat_sparcc,
+                     ggarrange(heat_sparcc1, heat_sparcc2, ncol = 2, labels = c("b", "c")),
+                     nrow = 2, labels = "a")
+p_sparcc
+ggsave(plot = p_sparcc, "../images/supp/supp_body_sites_sparcc.pdf", height = 10, width = 10)
+ggsave(plot = p_sparcc, "../images/supp/supp_body_sites_sparcc.jpeg", height = 10, width = 10, dpi = 300)
+```
+
+## 4.4 SPIEC-EASI {.tabset}
+
+### Combine forehead and palm data
+
+```{r, eval=FALSE}
+se_mb = spiec.easi(t(O), method = "mb", lambda.min.ratio = 1e-2,
+                   nlambda = 20, pulsar.params = list(rep.num = 50))
+write_rds(se_mb, "../data/body_sites/r data/se_mb.rds")
+```
+
+```{r}
+se_mb = read_rds("../data/body_sites/r data/se_mb.rds")
+
+edge_se = as.matrix(getRefit(se_mb))
+dimnames(edge_se) = list(rownames(O), rownames(O))
+col_ind = match(top_genus2, colnames(edge_se))
+edge_se = edge_se[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+
+se_beta = symBeta(getOptBeta(se_mb), mode = "maxabs")
+R_hat_se = as.matrix(se_beta)
+dimnames(R_hat_se) = list(rownames(O), rownames(O))
+col_ind = match(top_genus2, colnames(R_hat_se))
+R_hat_se = R_hat_se[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+
+df_se = data.frame(get_upper_tri(R_hat_se)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2))
+genus_level = sort(union(df_se$var1, df_se$var2))
+genus_label = sapply(genus_level, function(x) strsplit(x, " - ")[[1]][2])
+txt_color = ifelse(grepl("forehead", genus_level), "#1B9E77", "#D95F02")
+df_se$var1 = factor(df_se$var1, levels = genus_level)
+df_se$var2 = factor(df_se$var2, levels = genus_level)
+
+heat_se = df_se %>%
+  ggplot(aes(var2, var1, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, labels = genus_label) +
+  scale_y_discrete(drop = FALSE, labels = genus_label) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "Forehead and Palm") +
+  guides(fill = guide_colorbar(barwidth = 1, barheight = 7, 
+                               title.position = "right")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, face = "italic",
+                                   color = txt_color),
+        axis.text.y = element_text(size = 12, face = "italic",
+                                   color = txt_color),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 15),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank()) +
+  coord_fixed()
+```
+
+### Run forehead and palm data separately
+
+```{r, eval=FALSE}
+se_mb1 = spiec.easi(t(O1), method = "mb", lambda.min.ratio = 1e-2,
+                    nlambda = 20, pulsar.params = list(rep.num = 50))
+se_mb2 = spiec.easi(t(O2), method = "mb", lambda.min.ratio = 1e-2,
+                    nlambda = 20, pulsar.params = list(rep.num = 50))
+
+write_rds(se_mb1, "../data/body_sites/r data/se_mb_forehead.rds")
+write_rds(se_mb2, "../data/body_sites/r data/se_mb_palm.rds")
+```
+
+```{r}
+se_mb1 = read_rds("../data/body_sites/r data/se_mb_forehead.rds")
+se_mb2 = read_rds("../data/body_sites/r data/se_mb_palm.rds")
+
+# Forehead
+se_beta1 = symBeta(getOptBeta(se_mb1), mode = "maxabs")
+R_hat_se1 = as.matrix(se_beta1)
+dimnames(R_hat_se1) = list(rownames(O1), rownames(O1))
+col_ind = match(forehead_top_genus, colnames(R_hat_se1))
+R_hat_se1 = R_hat_se1[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+
+df_se1 = data.frame(get_upper_tri(R_hat_se1)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2))
+genus_level = sort(union(df_se1$var1, df_se1$var2))
+genus_label = sapply(genus_level, function(x) strsplit(x, " - ")[[1]][2])
+df_se1$var1 = factor(df_se1$var1, levels = genus_level)
+df_se1$var2 = factor(df_se1$var2, levels = genus_level)
+
+heat_se1 = df_se1 %>%
+  ggplot(aes(var2, var1, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, labels = genus_label) +
+  scale_y_discrete(drop = FALSE, labels = genus_label) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "Forehead") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
+                                   face = "italic", color = "#1B9E77"),
+        axis.text.y = element_text(size = 12, face = "italic", color = "#1B9E77"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 15),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = "none") +
+  coord_fixed()
+
+# Palm
+se_beta2 = symBeta(getOptBeta(se_mb2), mode = "maxabs")
+R_hat_se2 = as.matrix(se_beta2)
+dimnames(R_hat_se2) = list(rownames(O2), rownames(O2))
+col_ind = match(palm_top_genus, colnames(R_hat_se2))
+R_hat_se2 = R_hat_se2[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+
+df_se2 = data.frame(get_upper_tri(R_hat_se2)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2))
+genus_level = sort(union(df_se2$var1, df_se2$var2))
+genus_label = sapply(genus_level, function(x) strsplit(x, " - ")[[1]][2])
+df_se2$var1 = factor(df_se2$var1, levels = genus_level)
+df_se2$var2 = factor(df_se2$var2, levels = genus_level)
+
+heat_se2 = df_se2 %>%
+  ggplot(aes(var2, var1, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, labels = genus_label) +
+  scale_y_discrete(drop = FALSE, labels = genus_label) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "Palm") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
+                                   face = "italic", color = "#D95F02"),
+        axis.text.y = element_text(size = 12, face = "italic", color = "#D95F02"),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 15),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = "none") +
+  coord_fixed()
+```
+
+### Heatmap
+
+```{r, fig.height=10, fig.width=10}
+p_se = ggarrange(heat_se,
+                 ggarrange(heat_se1, heat_se2, ncol = 2, labels = c("b", "c")),
+                 nrow = 2, labels = "a")
+p_se
+ggsave(plot = p_se, "../images/supp/supp_body_sites_se.pdf", height = 10, width = 10)
+ggsave(plot = p_se, "../images/supp/supp_body_sites_se.jpeg", height = 10, width = 10, dpi = 300)
+```
+
+# Session information
+
+```{r, message = FALSE, warning = FALSE, comment = NA}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+

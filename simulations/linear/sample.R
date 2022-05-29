@@ -50,7 +50,7 @@ linear_data_generation = function(n, d, d1, corr_mu, corr_prob,
   R0[seq_len(d1), seq_len(d1)] = R0_sub
   
   # Sequencing efficiency
-  C = exp(rnorm(d, mean = 0, sd = 1))
+  C = rbeta(n = d, shape1 = 5, shape2 = 5)
   
   # Microbial loads in the ecosystem
   A_prim = A * C
@@ -117,7 +117,7 @@ res_sim = foreach(i = simparams_list, .verbose = TRUE, .combine = rbind) %dorng%
   corr_sample = res_sample$r
   corr_sample_p = res_sample$P
   diag(corr_sample_p) = 0
-  R_hat_sample = p_filter(corr_sample, corr_sample_p, max_p = 0.005)
+  R_hat_sample = p_filter(corr_sample, corr_sample_p, max_p = 0.001)
   
   # Relative error of Frobenius norm
   rel_F_sample = norm(R_hat_sample - R0, type = "F")/norm(R0, type = "F")

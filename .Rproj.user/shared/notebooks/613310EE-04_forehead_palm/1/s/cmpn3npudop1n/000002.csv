@@ -1,0 +1,70 @@
+"0","# Metadata"
+"0","palm_meta = read_tsv(""../data/body_sites/palm_meta.txt"")"
+"1","[1m[1mRows: [1m[22m[34m[34m932[34m[39m [1m[1mColumns: [1m[22m[34m[34m138[34m[39m
+"
+"1","[36m--[39m [1m[1mColumn specification[1m[22m [36m---------------------------------------------------------------------------------------[39m
+[1mDelimiter:[22m ""\t""
+[31mchr[39m (77): sample_name, age_unit, anonymized_name, antibiotics, artificialtanning, bmiclass, body_habitat, b...
+[32mdbl[39m (17): age, bmi, elevation, host_taxid, latitude, longitude, observedotus, pd, qiita_study_id, sequencec...
+[33mlgl[39m (44): ambiguoustimepoint, antibiotic_disturbance, anytimeseries, appendix, asthma, beestingallergies, b...
+"
+"1","
+[36mi[39m Use [38;5;235m[48;5;253m[38;5;235m[48;5;253m`spec()`[48;5;253m[38;5;235m[49m[39m to retrieve the full column specification for this data.
+[36mi[39m Specify the column types or set [38;5;235m[48;5;253m[38;5;235m[48;5;253m`show_col_types = FALSE`[48;5;253m[38;5;235m[49m[39m to quiet this message.
+"
+"0","palm_meta = palm_meta %>%"
+"0","  select(sample_name, host_subject_id, control, weeknumber, bodysite, age, "
+"0","         gender, bmi, raceethnicity, antibiotic_disturbance, country, diet, university) %>%"
+"0","  filter(control == FALSE,"
+"0","         antibiotic_disturbance == FALSE,"
+"0","         weeknumber == 1)"
+"0","sample_name = palm_meta$sample_name"
+"0","subj_name = palm_meta$host_subject_id"
+"0",""
+"0","# OTU table"
+"0","biom_palm = read_biom(""../data/body_sites/palm_otu.biom"")"
+"0","palm_otu = as(biom_data(biom_palm), ""matrix"")"
+"0","col_ind = match(sample_name, colnames(palm_otu))"
+"0","palm_otu = palm_otu[, col_ind[!is.na(col_ind)]]"
+"0","colnames(palm_otu) = subj_name[which(!is.na(col_ind))]"
+"0",""
+"0","# Taxonomy"
+"0","palm_tax = read_tsv(""../data/body_sites/palm_taxonomy.tsv"")"
+"1","[1m[1mRows: [1m[22m[34m[34m53024[34m[39m [1m[1mColumns: [1m[22m[34m[34m3[34m[39m
+"
+"1","[36m--[39m [1m[1mColumn specification[1m[22m [36m---------------------------------------------------------------------------------------[39m
+[1mDelimiter:[22m ""\t""
+[31mchr[39m (2): Feature ID, Taxon
+[32mdbl[39m (1): Confidence
+"
+"1","
+[36mi[39m Use [38;5;235m[48;5;253m[38;5;235m[48;5;253m`spec()`[48;5;253m[38;5;235m[49m[39m to retrieve the full column specification for this data.
+[36mi[39m Specify the column types or set [38;5;235m[48;5;253m[38;5;235m[48;5;253m`show_col_types = FALSE`[48;5;253m[38;5;235m[49m[39m to quiet this message.
+"
+"0","otu_id = palm_tax$`Feature ID`"
+"0","palm_tax = data.frame(palm_tax[, - c(1, 3)], row.names = otu_id)"
+"0","palm_tax = palm_tax %>% "
+"0","  separate(col = Taxon, "
+"0","           into = c(""Kingdom"", ""Phylum"", ""Class"", ""Order"", "
+"0","                    ""Family"", ""Genus"", ""Species""),"
+"0","           sep = "";"") %>%"
+"0","  rowwise() %>%"
+"0","  dplyr::mutate_all(function(x) strsplit(x, ""__"")[[1]][2]) %>%"
+"0","  dplyr::mutate_all(function(x) gsub(""\\[|\\]"", """", x)) %>%"
+"0","  mutate(Species = ifelse(!is.na(Species) & !is.na(Genus),"
+"0","                          paste(strsplit(Genus, """")[[1]][1], Species, sep = "".""),"
+"0","                          NA)) %>%"
+"0","  ungroup()"
+"2","Warning:"
+"2"," Expected 7 pieces. Missing pieces filled with `NA` in 16216 rows [1, 2, 4, 5, 7, 9, 17, 21, 22, 31, 34, 41, 42, 45, 47, 48, 49, 52, 55, 56, ...].
+"
+"0","palm_tax = as.matrix(palm_tax)"
+"0","rownames(palm_tax) = otu_id"
+"0","palm_tax[palm_tax == """"] = NA"
+"0",""
+"0","# OTU data"
+"0","PALM_OTU = otu_table(palm_otu, taxa_are_rows = TRUE)"
+"0","PALM_META = sample_data(palm_meta)"
+"0","sample_names(PALM_META) = palm_meta$host_subject_id"
+"0","PALM_TAX = tax_table(palm_tax)"
+"0","palm_otu_data = phyloseq(PALM_OTU, PALM_TAX, PALM_META)"

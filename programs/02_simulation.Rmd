@@ -15,11 +15,16 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE,
                       message = FALSE, comment = NA,
                       fig.width = 6.25, fig.height = 5)
 library(tidyverse)
-library(RColorBrewer)
 library(microbiome)
 library(Matrix)
 library(SpiecEasi)
 library(ggpubr)
+library(ggsci)
+library(Matrix)
+library(DT)
+options(DT.options = list(
+  initComplete = JS("function(settings, json) {",
+  "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});","}")))
 
 source("../programs/00_secom.R")
 ```
@@ -79,7 +84,7 @@ linear_data_generation = function(n, d, d1, corr_mu, corr_prob,
   R0[seq_len(d1), seq_len(d1)] = R0_sub
   
   # Sequencing efficiency
-  C = exp(rnorm(d, mean = 0, sd = 1))
+  C = rbeta(n = d, shape1 = 5, shape2 = 5)
   
   # Microbial loads in the ecosystem
   A_prim = A * C
@@ -129,7 +134,7 @@ simparams_list = apply(simparams, 1, paste0, collapse = "_")
 cl = makeCluster(5)
 registerDoParallel(cl)
 
-res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("microbiome", "doParallel")) %dorng% {
+res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("microbiome", "tidyverse", "doParallel")) %dorng% {
   params = strsplit(i, "_")[[1]]
   n = as.numeric(params[1])
   d = as.numeric(params[2])
@@ -150,42 +155,60 @@ res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packag
   otu_data = phyloseq(OTU, META)
   
   pseqs = list(c(otu_data, otu_data))
-  pesudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
+  pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
   wins_quant = c(0, 1); method = "pearson"; soft = FALSE; thresh_len = 20
-  n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 1
+  n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.001; n_cl = 1
   
-  res_secom = secom_linear(pseqs, pesudo, zero_cut, corr_cut, lib_cut, 
-                           wins_quant, method, soft, thresh_len, n_cv, 
-                           seed, thresh_hard, max_p, n_cl)
-
-  taxa_keep = rownames(res_secom$corr_th)
-  taxa_ind = which(taxa_keep %in% taxa_id)
+  res_linear = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                            wins_quant, method, soft, thresh_len, n_cv, 
+                            seed, thresh_hard, max_p, n_cl)
+  max_p = 0.0001
+  res_dist = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                        wins_quant, seed, max_p, n_cl)
+  
+  taxa_keep = rownames(res_linear$corr)
+  pos_idx = match(taxa_keep, taxa_id)
   R_hat_secom1 = matrix(0, ncol = d, nrow = d)
-  R_hat_secom1[taxa_ind, taxa_ind] = res_secom$corr_th
+  R_hat_secom1[pos_idx, pos_idx] = res_linear$corr_th
   R_hat_secom2 = matrix(0, ncol = d, nrow = d)
-  R_hat_secom2[taxa_ind, taxa_ind] = res_secom$corr_fl
+  R_hat_secom2[pos_idx, pos_idx] = res_linear$corr_fl
+  R_hat_secom3 = matrix(0, ncol = d, nrow = d)
+  R_hat_secom3[pos_idx, pos_idx] = res_dist$dcorr_fl
   
   # Relative error of Frobenius norm
   rel_F_secom1 = norm(R_hat_secom1 - R0, type = "F")/norm(R0, type = "F")
   rel_F_secom2 = norm(R_hat_secom2 - R0, type = "F")/norm(R0, type = "F")
+  rel_F_secom3 = norm(R_hat_secom3 - R0, type = "F")/norm(R0, type = "F")
   
   # Relative error of Spectral norm
   rel_S_secom1 = norm(R_hat_secom1 - R0, type = "F")/norm(R0, type = "2")
   rel_S_secom2 = norm(R_hat_secom2 - R0, type = "F")/norm(R0, type = "2")
+  rel_S_secom3 = norm(R_hat_secom3 - R0, type = "F")/norm(R0, type = "2")
   
   # TPR
   true_ind = (R0[lower.tri(R0)] != 0)
   secom_ind1 = (R_hat_secom1[lower.tri(R_hat_secom1)] != 0)
   secom_ind2 = (R_hat_secom2[lower.tri(R_hat_secom2)] != 0)
+  secom_ind3 = (R_hat_secom3[lower.tri(R_hat_secom3)] != 0)
   tpr_secom1 = sum(secom_ind1 * true_ind)/sum(true_ind)
   tpr_secom2 = sum(secom_ind2 * true_ind)/sum(true_ind)
+  tpr_secom3 = sum(secom_ind3 * true_ind)/sum(true_ind)
   
   # FPR
   fpr_secom1 = sum(secom_ind1 * (!true_ind))/sum(!true_ind)
   fpr_secom2 = sum(secom_ind2 * (!true_ind))/sum(!true_ind)
+  fpr_secom3 = sum(secom_ind3 * (!true_ind))/sum(!true_ind)
+  
+  # Compare two measures
+  count11 = sum(secom_ind2 == 1 & secom_ind3 == 1)
+  count10 = sum(secom_ind2 == 1 & secom_ind3 == 0)
+  count01 = sum(secom_ind2 == 0 & secom_ind3 == 1)
+  count00 = sum(secom_ind2 == 0 & secom_ind3 == 0)
   
   c(rel_F_secom1, rel_S_secom1, tpr_secom1, fpr_secom1, 
-    rel_F_secom2, rel_S_secom2, tpr_secom2, fpr_secom2)
+    rel_F_secom2, rel_S_secom2, tpr_secom2, fpr_secom2,
+    rel_F_secom3, rel_S_secom3, tpr_secom3, fpr_secom3,
+    count11, count10, count01, count00)
 }
 
 stopCluster(cl)
@@ -196,10 +219,10 @@ write_csv(data.frame(res_sim), "linear_secom.csv")
 ## 1.3 SparCC
 
 ```{r, eval=FALSE}
-cl = makeCluster(5)
+cl = makeCluster(10)
 registerDoParallel(cl)
 
-res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("SpiecEasi")) %dorng% {
+res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("microbiome", "tidyverse", "doParallel")) %dorng% {
   params = strsplit(i, "_")[[1]]
   n = as.numeric(params[1])
   d = as.numeric(params[2])
@@ -212,28 +235,68 @@ res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packag
   R0 = sim_data$R0
   taxa_id = paste0("T", seq_len(d))
   sample_id = paste0("S", seq_len(n))
+  meta_data = data.frame(sample_id = sample_id)
   dimnames(O) = list(taxa_id, sample_id)
+  OTU = otu_table(O, taxa_are_rows = TRUE)
+  META = sample_data(meta_data)
+  sample_names(META) = meta_data$sample_id
+  otu_data = phyloseq(OTU, META)
   
-  R_hat_sparcc = sparcc(t(O))$Cor
-  R_hat_sparcc = hard_thresh(R_hat_sparcc, 0.3)
-  colnames(R_hat_sparcc) = rownames(O)
-  rownames(R_hat_sparcc) = rownames(O)
+  pseqs = list(c(otu_data, otu_data))
+  pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
+  wins_quant = c(0, 1); method = "pearson"; soft = FALSE; thresh_len = 20
+  n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.001; n_cl = 1
+  
+  res_linear = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                            wins_quant, method, soft, thresh_len, n_cv, 
+                            seed, thresh_hard, max_p, n_cl)
+  R = 1000; max_p = 0.001
+  res_dist = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                        wins_quant, R, seed, max_p, n_cl)
+  
+  taxa_keep = rownames(res_linear$corr)
+  pos_idx = match(taxa_keep, taxa_id)
+  R_hat_secom1 = matrix(0, ncol = d, nrow = d)
+  R_hat_secom1[pos_idx, pos_idx] = res_linear$corr_th
+  R_hat_secom2 = matrix(0, ncol = d, nrow = d)
+  R_hat_secom2[pos_idx, pos_idx] = res_linear$corr_fl
+  R_hat_secom3 = matrix(0, ncol = d, nrow = d)
+  R_hat_secom3[pos_idx, pos_idx] = res_dist$dcorr_fl
   
   # Relative error of Frobenius norm
-  rel_F_sparcc = norm(R_hat_sparcc - R0, type = "F")/norm(R0, type = "F")
+  rel_F_secom1 = norm(R_hat_secom1 - R0, type = "F")/norm(R0, type = "F")
+  rel_F_secom2 = norm(R_hat_secom2 - R0, type = "F")/norm(R0, type = "F")
+  rel_F_secom3 = norm(R_hat_secom3 - R0, type = "F")/norm(R0, type = "F")
   
   # Relative error of Spectral norm
-  rel_S_sparcc = norm(R_hat_sparcc - R0, type = "F")/norm(R0, type = "2")
+  rel_S_secom1 = norm(R_hat_secom1 - R0, type = "F")/norm(R0, type = "2")
+  rel_S_secom2 = norm(R_hat_secom2 - R0, type = "F")/norm(R0, type = "2")
+  rel_S_secom3 = norm(R_hat_secom3 - R0, type = "F")/norm(R0, type = "2")
   
   # TPR
   true_ind = (R0[lower.tri(R0)] != 0)
-  sparcc_ind = (R_hat_sparcc[lower.tri(R_hat_sparcc)] != 0)
-  tpr_sparcc = sum(sparcc_ind * true_ind)/sum(true_ind)
+  secom_ind1 = (R_hat_secom1[lower.tri(R_hat_secom1)] != 0)
+  secom_ind2 = (R_hat_secom2[lower.tri(R_hat_secom2)] != 0)
+  secom_ind3 = (R_hat_secom3[lower.tri(R_hat_secom3)] != 0)
+  tpr_secom1 = sum(secom_ind1 * true_ind)/sum(true_ind)
+  tpr_secom2 = sum(secom_ind2 * true_ind)/sum(true_ind)
+  tpr_secom3 = sum(secom_ind3 * true_ind)/sum(true_ind)
   
   # FPR
-  fpr_sparcc = sum(sparcc_ind * (!true_ind))/sum(!true_ind)
+  fpr_secom1 = sum(secom_ind1 * (!true_ind))/sum(!true_ind)
+  fpr_secom2 = sum(secom_ind2 * (!true_ind))/sum(!true_ind)
+  fpr_secom3 = sum(secom_ind3 * (!true_ind))/sum(!true_ind)
   
-  c(rel_F_sparcc, rel_S_sparcc, tpr_sparcc, fpr_sparcc)
+  # Compare two measures
+  count11 = sum(secom_ind2 == 1 & secom_ind3 == 1)
+  count10 = sum(secom_ind2 == 1 & secom_ind3 == 0)
+  count01 = sum(secom_ind2 == 0 & secom_ind3 == 1)
+  count00 = sum(secom_ind2 == 0 & secom_ind3 == 0)
+  
+  c(rel_F_secom1, rel_S_secom1, tpr_secom1, fpr_secom1, 
+    rel_F_secom2, rel_S_secom2, tpr_secom2, fpr_secom2,
+    rel_F_secom3, rel_S_secom3, tpr_secom3, fpr_secom3,
+    count11, count10, count01, count00)
 }
 
 stopCluster(cl)
@@ -361,7 +424,7 @@ write_csv(data.frame(res_sim), "linear_prop.csv")
 cl = makeCluster(10)
 registerDoParallel(cl)
 
-res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("SpiecEasi")) %dorng% {
+res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("SpiecEasi", "Matrix")) %dorng% {
   params = strsplit(i, "_")[[1]]
   n = as.numeric(params[1])
   d = as.numeric(params[2])
@@ -381,8 +444,11 @@ res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packag
   se_gl = spiec.easi(t(O), method = "glasso", lambda.min.ratio = 1e-2,
                      nlambda = 20, pulsar.params = list(rep.num = 50))
   
-  R_hat_se1 = as.matrix(getRefit(se_mb))
-  R_hat_se2 = as.matrix(getRefit(se_gl))
+  se_beta = symBeta(getOptBeta(se_mb), mode = "maxabs")
+  se_cor  = cov2cor(getOptCov(se_gl))
+  
+  R_hat_se1 = as.matrix(se_beta)
+  R_hat_se2 = as.matrix(se_cor * getRefit(se_gl))
   
   # Relative error of Frobenius norm
   rel_F_se1 = norm(R_hat_se1 - R0, type = "F")/norm(R0, type = "F")
@@ -412,12 +478,14 @@ stopCluster(cl)
 write_csv(data.frame(res_sim), "linear_se.csv")
 ```
 
-## 1.7 Visualization
+## 1.7 Visualization 1: remove standard Pearson
 
 ```{r, fig.height=8, fig.width=15}
 linear_secom = read_csv("../outputs/linear/linear_secom.csv")
 linear_secom1 = linear_secom[, 1:4]
 linear_secom2 = linear_secom[, 5:8]
+linear_secom3 = linear_secom[, 9:12]
+secom_compare = linear_secom[, 13:16]
 linear_prop = read_csv("../outputs/linear/linear_prop.csv")
 linear_sparcc = read_csv("../outputs/linear/linear_sparcc.csv")
 linear_se = read_csv("../outputs/linear/linear_se.csv")
@@ -428,6 +496,7 @@ linear_sample = read_csv("../outputs/linear/linear_sample.csv")
 col_lab = c("rel_F", "rel_S", "tpr", "fpr")
 colnames(linear_secom1) = col_lab
 colnames(linear_secom2) = col_lab
+colnames(linear_secom3) = col_lab
 colnames(linear_prop) = col_lab
 colnames(linear_sparcc) = col_lab
 colnames(linear_se1) = col_lab
@@ -438,10 +507,13 @@ simpattern = distinct(simparams, n, d, dispersion) %>%
   unite("setting", n:dispersion, sep = ", ")
 
 linear_secom1 = linear_secom1 %>%
-  mutate(method = "SECOM (Thresholding)", 
+  mutate(method = "SECOM (Pearson1)", 
          setting = rep(simpattern$setting, each = iter_num))
 linear_secom2 = linear_secom2 %>%
-  mutate(method = "SECOM (Filtering)", 
+  mutate(method = "SECOM (Pearson2)", 
+         setting = rep(simpattern$setting, each = iter_num))
+linear_secom3 = linear_secom3 %>%
+  mutate(method = "SECOM (Distance)", 
          setting = rep(simpattern$setting, each = iter_num))
 linear_prop = linear_prop %>%
   mutate(method = "Proportionality", 
@@ -459,8 +531,8 @@ linear_sample = linear_sample %>%
   mutate(method = "Pearson", 
          setting = rep(simpattern$setting, each = iter_num))
 
-df_linear = rbind(linear_secom1, linear_secom2, linear_prop, 
-                  linear_sparcc, linear_se1, linear_se2, linear_sample)
+df_linear = rbind(linear_secom1, linear_secom2, linear_secom3, linear_prop, 
+                  linear_sparcc, linear_se1, linear_se2)
 
 # Relative norm loss
 df_linear_fig1 = df_linear %>%
@@ -470,9 +542,9 @@ df_linear_fig1 = df_linear %>%
   summarise(measure_mean = mean(value),
             measure_sd = sd(value))
 df_linear_fig1$method = factor(df_linear_fig1$method, 
-                               levels = c("SECOM (Thresholding)", "SECOM (Filtering)",
-                                          "Proportionality", "SparCC", 
-                                          "SPIEC-EASI (MB)", "SPIEC-EASI (GL)", "Pearson"))
+                               levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
+                                          "SECOM (Distance)", "Proportionality", "SparCC", 
+                                          "SPIEC-EASI (MB)", "SPIEC-EASI (GL)"))
 df_linear_fig1$setting = factor(df_linear_fig1$setting, 
                                 levels = c("50, 100, 0.5", "50, 100, 2",
                                            "100, 200, 0.5", "100, 200, 2"))
@@ -482,7 +554,7 @@ p_linear1 = df_linear_fig1 %>%
   geom_bar(position = "dodge", stat = "identity", color = "black") +
   geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
                 width = .2, position = position_dodge(.9)) +
-  scale_fill_brewer(name = NULL, palette = "Dark2") + 
+  scale_fill_nejm(name = NULL) +
   scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
                               "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
                               "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
@@ -502,9 +574,9 @@ df_linear_fig2 = df_linear %>%
   summarise(measure_mean = mean(value),
             measure_sd = sd(value))
 df_linear_fig2$method = factor(df_linear_fig2$method, 
-                               levels = c("SECOM (Thresholding)", "SECOM (Filtering)",
-                                          "Proportionality", "SparCC", 
-                                          "SPIEC-EASI (MB)", "SPIEC-EASI (GL)", "Pearson"))
+                               levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
+                                          "SECOM (Distance)", "Proportionality", "SparCC",
+                                          "SPIEC-EASI (MB)", "SPIEC-EASI (GL)"))
 df_linear_fig2$setting = factor(df_linear_fig2$setting, 
                                 levels = c("50, 100, 0.5", "50, 100, 2",
                                            "100, 200, 0.5", "100, 200, 2"))
@@ -514,14 +586,14 @@ p_linear2 = df_linear_fig2 %>%
   geom_bar(position = "dodge", stat = "identity", color = "black") +
   geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
                 width = .2, position = position_dodge(.9)) +
-  scale_fill_brewer(name = NULL, palette = "Dark2") + 
+  scale_fill_nejm(name = NULL) +
   scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
                               "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
                               "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
                               "100, 200, 2" = "(n = 100, d = 200, \u03B1 = 2)")) +
   facet_grid(rows = vars(measure), scales = "free", switch = "y", 
              labeller = labeller(measure = c(tpr = "TPR", fpr = "FPR"))) +
-  labs(title = "Sparsity Recovery", x = NULL, y = NULL) +
+  labs(title = "FPR/TPR", x = NULL, y = NULL) +
   theme_bw() +
   theme(plot.title = element_text(hjust = 0.5),
         strip.background = element_rect(fill = "white"))
@@ -532,6 +604,112 @@ p_linear = ggarrange(p_linear1, p_linear2, ncol = 2, nrow = 1,
 print(p_linear)
 ggsave(plot = p_linear, "../images/main/sim_linear.pdf", height = 8, width = 15)   
 ggsave(plot = p_linear, "../images/main/sim_linear.jpeg", height = 8, width = 15, dpi = 300)
+```
+
+## 1.8 Visualization 2: all groups
+
+```{r, fig.height=8, fig.width=15}
+df_linear = rbind(linear_secom1, linear_secom2, linear_secom3, linear_prop, 
+                  linear_sparcc, linear_se1, linear_se2, linear_sample)
+
+# Relative norm loss
+df_linear_fig1 = df_linear %>%
+  dplyr::select(rel_F, rel_S, method, setting) %>%
+  pivot_longer(cols = rel_F:rel_S, names_to = "measure", values_to = "value") %>%
+  group_by(method, setting, measure) %>%
+  summarise(measure_mean = mean(value),
+            measure_sd = sd(value))
+df_linear_fig1$method = factor(df_linear_fig1$method, 
+                               levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
+                                          "SECOM (Distance)", "Proportionality", "SparCC", 
+                                          "SPIEC-EASI (MB)", "SPIEC-EASI (GL)", "Pearson"))
+df_linear_fig1$setting = factor(df_linear_fig1$setting, 
+                                levels = c("50, 100, 0.5", "50, 100, 2",
+                                           "100, 200, 0.5", "100, 200, 2"))
+
+p_linear1 = df_linear_fig1 %>%
+  ggplot(aes(x = setting, y = measure_mean, fill = method)) + 
+  geom_bar(position = "dodge", stat = "identity", color = "black") +
+  geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
+                width = .2, position = position_dodge(.9)) +
+  scale_fill_nejm(name = NULL) +
+  scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
+                              "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
+                              "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
+                              "100, 200, 2" = "(n = 100, d = 200, \u03B1 = 2)")) +
+  facet_grid(rows = vars(measure), scales = "free", switch = "y", 
+             labeller = labeller(measure = c(rel_F = "Frobenius", rel_S = "Spectral"))) +
+  labs(title = "Relative Norm Loss", x = NULL, y = NULL) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        strip.background = element_rect(fill = "white"))
+
+# TPR/FPR
+df_linear_fig2 = df_linear %>%
+  dplyr::select(tpr, fpr, method, setting) %>%
+  pivot_longer(cols = tpr:fpr, names_to = "measure", values_to = "value") %>%
+  group_by(method, setting, measure) %>%
+  summarise(measure_mean = mean(value),
+            measure_sd = sd(value))
+df_linear_fig2$method = factor(df_linear_fig2$method, 
+                               levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
+                                          "SECOM (Distance)", "Proportionality", "SparCC",
+                                          "SPIEC-EASI (MB)", "SPIEC-EASI (GL)", "Pearson"))
+df_linear_fig2$setting = factor(df_linear_fig2$setting, 
+                                levels = c("50, 100, 0.5", "50, 100, 2",
+                                           "100, 200, 0.5", "100, 200, 2"))
+
+p_linear2 = df_linear_fig2 %>%
+  ggplot(aes(x = setting, y = measure_mean, fill = method)) + 
+  geom_bar(position = "dodge", stat = "identity", color = "black") +
+  geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
+                width = .2, position = position_dodge(.9)) +
+  scale_fill_nejm(name = NULL) +
+  scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
+                              "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
+                              "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
+                              "100, 200, 2" = "(n = 100, d = 200, \u03B1 = 2)")) +
+  facet_grid(rows = vars(measure), scales = "free", switch = "y", 
+             labeller = labeller(measure = c(tpr = "TPR", fpr = "FPR"))) +
+  labs(title = "FPR/TPR", x = NULL, y = NULL) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        strip.background = element_rect(fill = "white"))
+
+
+p_linear = ggarrange(p_linear1, p_linear2, ncol = 2, nrow = 1,
+                     labels = c("a", "b"), common.legend = TRUE, legend = "bottom")
+print(p_linear)
+ggsave(plot = p_linear, "../images/supp/supp_sim_linear.pdf", height = 8, width = 15)   
+ggsave(plot = p_linear, "../images/supp/supp_sim_linear.jpeg", height = 8, width = 15, dpi = 300)
+```
+
+## 1.9 Compare SECOM results between Pearson and Distance measures
+
+* (1, 1): Pearson = TRUE, distance = TRUE
+    
+* (1, 0): Pearson = TRUE, distance = FALSE
+
+* (0, 1): Pearson = FALSE, distance = TRUE
+
+* (0, 0): Pearson = FALSE, distance = FALSE
+
+```{r}
+secom_compare = secom_compare %>%
+  mutate(setting = rep(simpattern$setting, each = iter_num))
+
+secom_compare2 = secom_compare %>%
+  group_by(setting) %>%
+  summarise_all(mean) %>%
+  mutate_if(is.numeric, function(x) round(x))
+
+colnames(secom_compare2) = c("Setting", "(1, 1)", "(1, 0)", "(0, 1)", "(0, 0)")
+secom_compare2$Setting = factor(secom_compare2$Setting, 
+                                levels = c("50, 100, 0.5", "50, 100, 2",
+                                           "100, 200, 0.5", "100, 200, 2"))
+secom_compare2 = secom_compare2 %>%
+  arrange(Setting)
+datatable(secom_compare2)
 ```
 
 # 2. Synthetic data: nonlinear correlations {.tabset}
@@ -576,7 +754,7 @@ nonlinear_data_generation = function(n, d, d1, abn_mean, abn_prob,
   A = rbind(A1, A2)
   
   # Sequencing efficiency
-  C = exp(rnorm(d, mean = 0, sd = 1))
+  C = C = rbeta(n = d, shape1 = 5, shape2 = 5)
   
   # Microbial loads in the ecosystem
   A_prim = A * C
@@ -628,10 +806,10 @@ simparams_list = apply(simparams, 1, paste0, collapse = "_")
 ## 2.2 SECOM
 
 ```{r, eval=FALSE}
-cl = makeCluster(20)
+cl = makeCluster(10)
 registerDoParallel(cl)
 
-res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("microbiome", "doParallel")) %dorng% {
+res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("microbiome", "tidyverse", "doParallel")) %dorng% {
   params = strsplit(i, "_")[[1]]
   n = as.numeric(params[1])
   d = as.numeric(params[2])
@@ -651,26 +829,50 @@ res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packag
   otu_data = phyloseq(OTU, META)
   
   pseqs = list(c(otu_data, otu_data))
-  pesudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
-  wins_quant = c(0, 1); R = 1000; seed = 123; max_p = 0.005; n_cl = 1
+  pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
+  wins_quant = c(0, 1); method = "pearson"; soft = FALSE; thresh_len = 20
+  n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.001; n_cl = 1
   
-  res_secom = secom_dist(pseqs, pesudo, zero_cut, corr_cut, lib_cut, 
-                         wins_quant, R, seed, max_p, n_cl)
+  res_linear = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                            wins_quant, method, soft, thresh_len, n_cv, 
+                            seed, thresh_hard, max_p, n_cl)
+  R = 1000; max_p = 0.001
+  res_dist = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                        wins_quant, R, seed, max_p, n_cl)
   
-  taxa_keep = rownames(res_secom$dcorr_fl)
-  taxa_ind = which(taxa_keep %in% taxa_id)
-  R_hat_secom = matrix(0, ncol = d, nrow = d)
-  R_hat_secom[taxa_ind, taxa_ind] = res_secom$dcorr_fl
+  taxa_keep = rownames(res_linear$corr)
+  pos_idx = match(taxa_keep, taxa_id)
+  R_hat_secom1 = matrix(0, ncol = d, nrow = d)
+  R_hat_secom1[pos_idx, pos_idx] = res_linear$corr_th
+  R_hat_secom2 = matrix(0, ncol = d, nrow = d)
+  R_hat_secom2[pos_idx, pos_idx] = res_linear$corr_fl
+  R_hat_secom3 = matrix(0, ncol = d, nrow = d)
+  R_hat_secom3[pos_idx, pos_idx] = res_dist$dcorr_fl
   
   # TPR
   true_ind = (R0[lower.tri(R0)] != 0)
-  secom_ind = (R_hat_secom[lower.tri(R_hat_secom)] != 0)
-  tpr_secom = sum(secom_ind * true_ind)/sum(true_ind)
+  secom_ind1 = (R_hat_secom1[lower.tri(R_hat_secom1)] != 0)
+  secom_ind2 = (R_hat_secom2[lower.tri(R_hat_secom2)] != 0)
+  secom_ind3 = (R_hat_secom3[lower.tri(R_hat_secom3)] != 0)
+  tpr_secom1 = sum(secom_ind1 * true_ind)/sum(true_ind)
+  tpr_secom2 = sum(secom_ind2 * true_ind)/sum(true_ind)
+  tpr_secom3 = sum(secom_ind3 * true_ind)/sum(true_ind)
   
   # FPR
-  fpr_secom = sum(secom_ind * (!true_ind))/sum(!true_ind)
+  fpr_secom1 = sum(secom_ind1 * (!true_ind))/sum(!true_ind)
+  fpr_secom2 = sum(secom_ind2 * (!true_ind))/sum(!true_ind)
+  fpr_secom3 = sum(secom_ind3 * (!true_ind))/sum(!true_ind)
   
-  c(tpr_secom, fpr_secom)
+  # Compare two measures
+  count11 = sum(secom_ind2 == 1 & secom_ind3 == 1)
+  count10 = sum(secom_ind2 == 1 & secom_ind3 == 0)
+  count01 = sum(secom_ind2 == 0 & secom_ind3 == 1)
+  count00 = sum(secom_ind2 == 0 & secom_ind3 == 0)
+  
+  c(tpr_secom1, fpr_secom1, 
+    tpr_secom2, fpr_secom2,
+    tpr_secom3, fpr_secom3,
+    count11, count10, count01, count00)
 }
 
 stopCluster(cl)
@@ -822,7 +1024,7 @@ write_csv(data.frame(res_sim), "nonlinear_prop.csv")
 cl = makeCluster(10)
 registerDoParallel(cl)
 
-res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("SpiecEasi")) %dorng% {
+res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("SpiecEasi", "Matrix")) %dorng% {
   params = strsplit(i, "_")[[1]]
   n = as.numeric(params[1])
   d = as.numeric(params[2])
@@ -841,8 +1043,11 @@ res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packag
   se_gl = spiec.easi(t(O), method = "glasso", lambda.min.ratio = 1e-2,
                      nlambda = 20, pulsar.params = list(rep.num = 50))
   
-  R_hat_se1 = as.matrix(getRefit(se_mb))
-  R_hat_se2 = as.matrix(getRefit(se_gl))
+  se_beta = symBeta(getOptBeta(se_mb), mode = "maxabs")
+  se_cor  = cov2cor(getOptCov(se_gl))
+  
+  R_hat_se1 = as.matrix(se_beta)
+  R_hat_se2 = as.matrix(se_cor * getRefit(se_gl))
   dimnames(R_hat_se1) = list(taxa_id, taxa_id)
   dimnames(R_hat_se2) = list(taxa_id, taxa_id)
   
@@ -865,10 +1070,14 @@ stopCluster(cl)
 write_csv(data.frame(res_sim), "nonlinear_se.csv")
 ```
 
-## 2.7 Visualization
+## 2.7 Visualization 1: remove standard Pearson
 
 ```{r, fig.height=6, fig.width=8}
 nonlinear_secom = read_csv("../outputs/nonlinear/nonlinear_secom.csv")
+nonlinear_secom1 = nonlinear_secom[, 1:2]
+nonlinear_secom2 = nonlinear_secom[, 3:4]
+nonlinear_secom3 = nonlinear_secom[, 5:6]
+secom_compare = nonlinear_secom[, 7:10]
 nonlinear_prop = read_csv("../outputs/nonlinear/nonlinear_prop.csv")
 nonlinear_sparcc = read_csv("../outputs/nonlinear/nonlinear_sparcc.csv")
 nonlinear_sample = read_csv("../outputs/nonlinear/nonlinear_sample.csv")
@@ -877,7 +1086,9 @@ nonlinear_se1 = nonlinear_se[, 1:2]
 nonlinear_se2 = nonlinear_se[, 3:4]
 
 col_lab = c("tpr", "fpr")
-colnames(nonlinear_secom) = col_lab
+colnames(nonlinear_secom1) = col_lab
+colnames(nonlinear_secom2) = col_lab
+colnames(nonlinear_secom3) = col_lab
 colnames(nonlinear_prop) = col_lab
 colnames(nonlinear_sparcc) = col_lab
 colnames(nonlinear_se1) = col_lab
@@ -887,8 +1098,14 @@ colnames(nonlinear_sample) = col_lab
 simpattern = distinct(simparams, n, d, dispersion) %>%
   unite("setting", n:dispersion, sep = ", ")
 
-nonlinear_secom = nonlinear_secom %>%
-  mutate(method = "SECOM", 
+nonlinear_secom1 = nonlinear_secom1 %>%
+  mutate(method = "SECOM (Pearson1)", 
+         setting = rep(simpattern$setting, each = iter_num))
+nonlinear_secom2 = nonlinear_secom2 %>%
+  mutate(method = "SECOM (Pearson2)", 
+         setting = rep(simpattern$setting, each = iter_num))
+nonlinear_secom3 = nonlinear_secom3 %>%
+  mutate(method = "SECOM (Distance)", 
          setting = rep(simpattern$setting, each = iter_num))
 nonlinear_prop = nonlinear_prop %>%
   mutate(method = "Proportionality", 
@@ -906,8 +1123,9 @@ nonlinear_sample = nonlinear_sample %>%
   mutate(method = "Pearson", 
          setting = rep(simpattern$setting, each = iter_num))
 
-df_nonlinear = rbind(nonlinear_secom, nonlinear_prop, nonlinear_sparcc, 
-                     nonlinear_se1, nonlinear_se2, nonlinear_sample)
+df_nonlinear = rbind(nonlinear_secom1, nonlinear_secom2, nonlinear_secom3, 
+                     nonlinear_prop, nonlinear_sparcc, 
+                     nonlinear_se1, nonlinear_se2)
 
 # TPR/FPR
 df_nonlinear_fig = df_nonlinear %>%
@@ -917,8 +1135,9 @@ df_nonlinear_fig = df_nonlinear %>%
   summarise(measure_mean = mean(value),
             measure_sd = sd(value))
 df_nonlinear_fig$method = factor(df_nonlinear_fig$method, 
-                                 levels = c("SECOM", "Proportionality", "SparCC", 
-                                            "SPIEC-EASI (MB)", "SPIEC-EASI (GL)", "Pearson"))
+                                 levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
+                                            "SECOM (Distance)", "Proportionality", "SparCC", 
+                                            "SPIEC-EASI (MB)", "SPIEC-EASI (GL)"))
 df_nonlinear_fig$setting = factor(df_nonlinear_fig$setting, 
                                   levels = c("50, 100, 0.5", "50, 100, 2",
                                              "100, 200, 0.5", "100, 200, 2"))
@@ -929,15 +1148,14 @@ p_nonlinear = df_nonlinear_fig %>%
   geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
                 width = .2, position = position_dodge(.9)) +
   # brewer.pal(n = 7, name = "Dark2")
-  scale_fill_manual(name = NULL, values = c("#1B9E77", "#7570B3", "#E7298A",
-                                            "#66A61E", "#E6AB02", "#A6761D")) + 
+  scale_fill_nejm(name = NULL) +
   scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
                               "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
                               "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
                               "100, 200, 2" = "(n = 100, d = 200, \u03B1 = 2)")) +
   facet_grid(rows = vars(measure), scales = "free", switch = "y", 
              labeller = labeller(measure = c(tpr = "TPR", fpr = "FPR"))) +
-  labs(title = "Sparsity Recovery", x = NULL, y = NULL) +
+  labs(title = "FPR/TPR", x = NULL, y = NULL) +
   theme_bw() +
   theme(plot.title = element_text(hjust = 0.5),
         strip.background = element_rect(fill = "white"),
@@ -950,9 +1168,334 @@ ggsave(filename = "../images/main/sim_nonlinear.pdf",
        plot = p_nonlinear, width = 8, height = 6)
 ```
 
-# 3. Synthetic data: two ecosystems {.tabset}
+## 2.8 Visualization 2: all groups
 
-## 3.1 Data generation
+```{r, fig.height=6, fig.width=8}
+df_nonlinear = rbind(nonlinear_secom1, nonlinear_secom2, nonlinear_secom3, 
+                     nonlinear_prop, nonlinear_sparcc, 
+                     nonlinear_se1, nonlinear_se2, nonlinear_sample)
+
+# TPR/FPR
+df_nonlinear_fig = df_nonlinear %>%
+  dplyr::select(tpr, fpr, method, setting) %>%
+  pivot_longer(cols = tpr:fpr, names_to = "measure", values_to = "value") %>%
+  group_by(method, setting, measure) %>%
+  summarise(measure_mean = mean(value),
+            measure_sd = sd(value))
+df_nonlinear_fig$method = factor(df_nonlinear_fig$method, 
+                                 levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
+                                            "SECOM (Distance)", "Proportionality", "SparCC", 
+                                            "SPIEC-EASI (MB)", "SPIEC-EASI (GL)", "Pearson"))
+df_nonlinear_fig$setting = factor(df_nonlinear_fig$setting, 
+                                  levels = c("50, 100, 0.5", "50, 100, 2",
+                                             "100, 200, 0.5", "100, 200, 2"))
+
+p_nonlinear = df_nonlinear_fig %>%
+  ggplot(aes(x = setting, y = measure_mean, fill = method)) + 
+  geom_bar(position = "dodge", stat = "identity", color = "black") +
+  geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
+                width = .2, position = position_dodge(.9)) +
+  # brewer.pal(n = 7, name = "Dark2")
+  scale_fill_nejm(name = NULL) +
+  scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
+                              "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
+                              "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
+                              "100, 200, 2" = "(n = 100, d = 200, \u03B1 = 2)")) +
+  facet_grid(rows = vars(measure), scales = "free", switch = "y", 
+             labeller = labeller(measure = c(tpr = "TPR", fpr = "FPR"))) +
+  labs(title = "FPR/TPR", x = NULL, y = NULL) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        strip.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+print(p_nonlinear)
+
+ggsave(filename = "../images/supp/supp_sim_nonlinear.jpeg",
+       plot = p_nonlinear, width = 8, height = 6, units = "in", dpi = 300)
+ggsave(filename = "../images/supp/supp_sim_nonlinear.pdf",
+       plot = p_nonlinear, width = 8, height = 6)
+```
+
+## 2.9 Compare SECOM results between Pearson and Distance measures
+
+* (1, 1): Pearson = TRUE, distance = TRUE
+    
+* (1, 0): Pearson = TRUE, distance = FALSE
+
+* (0, 1): Pearson = FALSE, distance = TRUE
+
+* (0, 0): Pearson = FALSE, distance = FALSE
+
+```{r}
+secom_compare = secom_compare %>%
+  mutate(setting = rep(simpattern$setting, each = iter_num))
+
+secom_compare2 = secom_compare %>%
+  group_by(setting) %>%
+  summarise_all(mean) %>%
+  mutate_if(is.numeric, function(x) round(x))
+
+colnames(secom_compare2) = c("Setting", "(1, 1)", "(1, 0)", "(0, 1)", "(0, 0)")
+secom_compare2$Setting = factor(secom_compare2$Setting, 
+                                levels = c("50, 100, 0.5", "50, 100, 2",
+                                           "100, 200, 0.5", "100, 200, 2"))
+secom_compare2 = secom_compare2 %>%
+  arrange(Setting)
+datatable(secom_compare2)
+```
+
+# 3. Compare SECOM results between Pearson and Distance measures {.tabset}
+
+## 3.1 Linear correlations
+
+```{r}
+n_d = c("50_100")
+d1 = 50
+corr_mu = c(2000, 10000, 40000, 100000)
+corr_prob = c(0.1, 0.4, 0.4, 0.1)
+uncorr_mu = c(2000, 10000, 40000, 100000)
+uncorr_prob = c(0.1, 0.4, 0.4, 0.1)
+dispersion = 0.5
+iter_num = 100
+seed = seq_len(iter_num)
+
+simparams = data.frame(expand.grid(n_d, dispersion, seed)) %>%
+  separate(col = Var1, into = c("n", "d"), sep = "_") %>%
+  mutate(n = as.numeric(n),
+         d = as.numeric(d))
+colnames(simparams) = c("n", "d", "dispersion", "seed")
+simparams = simparams %>%
+  arrange(n, d, dispersion, seed)
+simparams_list = apply(simparams, 1, paste0, collapse = "_")
+```
+
+```{r, eval=FALSE}
+cl = makeCluster(5)
+registerDoParallel(cl)
+
+res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("microbiome", "tidyverse", "doParallel")) %dorng% {
+  params = strsplit(i, "_")[[1]]
+  n = as.numeric(params[1])
+  d = as.numeric(params[2])
+  dispersion = as.numeric(params[3])
+  seed = as.numeric(params[4])
+  
+  sim_data = linear_data_generation(n, d, d1, corr_mu, corr_prob, 
+                                    uncorr_mu, uncorr_prob, dispersion, seed)
+  O = sim_data$O
+  R0 = sim_data$R0
+  taxa_id = paste0("T", seq_len(d))
+  sample_id = paste0("S", seq_len(n))
+  meta_data = data.frame(sample_id = sample_id)
+  dimnames(O) = list(taxa_id, sample_id)
+  OTU = otu_table(O, taxa_are_rows = TRUE)
+  META = sample_data(meta_data)
+  sample_names(META) = meta_data$sample_id
+  otu_data = phyloseq(OTU, META)
+  
+  pseqs = list(c(otu_data, otu_data))
+  pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
+  wins_quant = c(0, 1); method = "pearson"; soft = FALSE; thresh_len = 20
+  n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.001; n_cl = 1
+  
+  res_linear = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                            wins_quant, method, soft, thresh_len, n_cv, 
+                            seed, thresh_hard, max_p, n_cl)
+  R = 1000; max_p = 0.001
+  res_dist = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                        wins_quant, R, seed, max_p, n_cl)
+  
+  taxa_keep = rownames(res_linear$corr)
+  pos_idx = match(taxa_keep, taxa_id)
+  
+  R_hat_secom1 = matrix(0, ncol = d, nrow = d)
+  R_hat_secom1[pos_idx, pos_idx] = res_linear$corr_fl
+  R_hat_secom2 = matrix(0, ncol = d, nrow = d)
+  R_hat_secom2[pos_idx, pos_idx] = res_dist$dcorr_fl
+  
+  R11 = (R_hat_secom1 != 0) * (R_hat_secom2 != 0)
+  R10 = (R_hat_secom1 != 0) * (R_hat_secom2 == 0)
+  R01 = (R_hat_secom1 == 0) * (R_hat_secom2 != 0)
+  R00 = (R_hat_secom1 == 0) * (R_hat_secom2 == 0)
+  
+  R11 = R11[lower.tri(R11)]
+  R10 = R10[lower.tri(R10)]
+  R01 = R01[lower.tri(R01)]
+  R00 = R00[lower.tri(R00)]
+  
+  tp = (R0[lower.tri(R0)] != 0)
+  tn = (R0[lower.tri(R0)] == 0)
+  
+  # TP
+  tp11 = sum(R11 * tp)
+  tp10 = sum(R10 * tp)
+  tp01 = sum(R01 * tp)
+  
+  # FP
+  fp11 = sum(R11 * tn)
+  fp10 = sum(R10 * tn)
+  fp01 = sum(R01 * tn)
+  
+  # TN/FN
+  tn00 = sum(R00 * tn)
+  fn00 = sum(R00 * tp)
+  
+  # Compare two measures
+  count11 = sum(R11)
+  count10 = sum(R10)
+  count01 = sum(R01)
+  count00 = sum(R00)
+  
+  c(count11, count10, count01, count00, 
+    tp11, tp10, tp01, fp11, fp10, fp01, tn00, fn00)
+}
+
+stopCluster(cl)
+
+write_csv(data.frame(res_sim), "linear_conc.csv")
+```
+
+```{r}
+df_compare_linear = read_csv("../outputs/concordance/linear_conc.csv")
+compare_linear = colMeans(df_compare_linear)
+
+compare_linear = data.frame(x1 = paste0(compare_linear[1], " (TP = ", compare_linear[5],
+                                        ", FP = ", compare_linear[8], ")"),
+                            x2 = paste0(compare_linear[2], " (TP = ", compare_linear[6],
+                                        ", FP = ", compare_linear[9], ")"),
+                            x3 = paste0(compare_linear[3], " (TP = ", compare_linear[7],
+                                        ", FP = ", compare_linear[10], ")"),
+                            x4 = paste0(compare_linear[4], " (TN = ", compare_linear[11],
+                                        ", FN = ", compare_linear[12], ")"))
+colnames(compare_linear) = c("(1, 1)", "(1, 0)", "(0, 1)", "(0, 0)")
+datatable(compare_linear)
+```
+
+## 3.2 Nonlinear correlations
+
+```{r}
+n_d = c("50_100")
+d1 = 50
+abn_mean = c(2000, 10000, 40000, 100000)
+abn_prob = c(0.1, 0.4, 0.4, 0.1)
+dispersion = 0.5
+iter_num = 100
+seed = seq_len(iter_num)
+
+simparams = data.frame(expand.grid(n_d, dispersion, seed)) %>%
+  separate(col = Var1, into = c("n", "d"), sep = "_") %>%
+  mutate(n = as.numeric(n),
+         d = as.numeric(d))
+colnames(simparams) = c("n", "d", "dispersion", "seed")
+simparams = simparams %>%
+  arrange(n, d, dispersion, seed)
+simparams_list = apply(simparams, 1, paste0, collapse = "_")
+```
+
+```{r, eval=FALSE}
+cl = makeCluster(5)
+registerDoParallel(cl)
+
+res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("microbiome", "tidyverse", "doParallel")) %dorng% {
+  params = strsplit(i, "_")[[1]]
+  n = as.numeric(params[1])
+  d = as.numeric(params[2])
+  dispersion = as.numeric(params[3])
+  seed = as.numeric(params[4])
+  
+  sim_data = nonlinear_data_generation(n, d, d1, abn_mean, abn_prob, dispersion, seed)
+  O = sim_data$O
+  R0 = sim_data$R0
+  taxa_id = paste0("T", seq_len(d))
+  sample_id = paste0("S", seq_len(n))
+  meta_data = data.frame(sample_id = sample_id)
+  dimnames(O) = list(taxa_id, sample_id)
+  OTU = otu_table(O, taxa_are_rows = TRUE)
+  META = sample_data(meta_data)
+  sample_names(META) = meta_data$sample_id
+  otu_data = phyloseq(OTU, META)
+  
+  pseqs = list(c(otu_data, otu_data))
+  pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
+  wins_quant = c(0, 1); method = "pearson"; soft = FALSE; thresh_len = 20
+  n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.001; n_cl = 1
+  
+  res_linear = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                            wins_quant, method, soft, thresh_len, n_cv, 
+                            seed, thresh_hard, max_p, n_cl)
+  R = 1000; max_p = 0.001
+  res_dist = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                        wins_quant, R, seed, max_p, n_cl)
+  
+  taxa_keep = rownames(res_linear$corr)
+  pos_idx = match(taxa_keep, taxa_id)
+  
+  R_hat_secom1 = matrix(0, ncol = d, nrow = d)
+  R_hat_secom1[pos_idx, pos_idx] = res_linear$corr_fl
+  R_hat_secom2 = matrix(0, ncol = d, nrow = d)
+  R_hat_secom2[pos_idx, pos_idx] = res_dist$dcorr_fl
+  
+  R11 = (R_hat_secom1 != 0) * (R_hat_secom2 != 0)
+  R10 = (R_hat_secom1 != 0) * (R_hat_secom2 == 0)
+  R01 = (R_hat_secom1 == 0) * (R_hat_secom2 != 0)
+  R00 = (R_hat_secom1 == 0) * (R_hat_secom2 == 0)
+  
+  R11 = R11[lower.tri(R11)]
+  R10 = R10[lower.tri(R10)]
+  R01 = R01[lower.tri(R01)]
+  R00 = R00[lower.tri(R00)]
+  
+  tp = (R0[lower.tri(R0)] != 0)
+  tn = (R0[lower.tri(R0)] == 0)
+  
+  # TP
+  tp11 = sum(R11 * tp)
+  tp10 = sum(R10 * tp)
+  tp01 = sum(R01 * tp)
+  
+  # FP
+  fp11 = sum(R11 * tn)
+  fp10 = sum(R10 * tn)
+  fp01 = sum(R01 * tn)
+  
+  # TN/FN
+  tn00 = sum(R00 * tn)
+  fn00 = sum(R00 * tp)
+  
+  # Compare two measures
+  count11 = sum(R11)
+  count10 = sum(R10)
+  count01 = sum(R01)
+  count00 = sum(R00)
+  
+  c(count11, count10, count01, count00, 
+    tp11, tp10, tp01, fp11, fp10, fp01, tn00, fn00)
+}
+
+stopCluster(cl)
+
+write_csv(data.frame(res_sim), "nonlinear_conc.csv")
+```
+
+```{r}
+df_compare_nonlinear = read_csv("../outputs/concordance/nonlinear_conc.csv")
+compare_nonlinear = colMeans(df_compare_nonlinear)
+
+compare_nonlinear = data.frame(x1 = paste0(compare_nonlinear[1], " (TP = ", compare_nonlinear[5],
+                                           ", FP = ", compare_nonlinear[8], ")"),
+                               x2 = paste0(compare_nonlinear[2], " (TP = ", compare_nonlinear[6],
+                                           ", FP = ", compare_nonlinear[9], ")"),
+                               x3 = paste0(compare_nonlinear[3], " (TP = ", compare_nonlinear[7],
+                                           ", FP = ", compare_nonlinear[10], ")"),
+                               x4 = paste0(compare_nonlinear[4], " (TN = ", compare_nonlinear[11],
+                                           ", FN = ", compare_nonlinear[12], ")"))
+colnames(compare_nonlinear) = c("(1, 1)", "(1, 0)", "(0, 1)", "(0, 0)")
+datatable(compare_nonlinear)
+```
+
+# 4. Synthetic data: two ecosystems {.tabset}
+
+## 4.1 Data generation
 
 ```{r}
 complex_data_generation = function(n, d, d1, abn_mean1, abn_prob1, 
@@ -994,7 +1537,7 @@ complex_data_generation = function(n, d, d1, abn_mean1, abn_prob1,
   A1[seq_len(d1), ] = A1_1
   
   # Sequencing efficiency
-  C1 = exp(rnorm(d, mean = 0, sd = 1))
+  C1 = rbeta(n = d, shape1 = 5, shape2 = 5)
   
   # Microbial loads in the ecosystem
   A1_prim = A1 * C1
@@ -1022,7 +1565,7 @@ complex_data_generation = function(n, d, d1, abn_mean1, abn_prob1,
   A2[seq_len(d1), ] = A2_1
   
   # Sequencing efficiency
-  C2 = exp(rnorm(d, mean = 0, sd = 1))
+  C2 = rbeta(n = d, shape1 = 5, shape2 = 5)
   
   # Microbial loads in the ecosystem
   A2_prim = A2 * C2
@@ -1066,13 +1609,13 @@ simparams = simparams %>%
 simparams_list = apply(simparams, 1, paste0, collapse = "_")
 ```
 
-## 3.2 SECOM
+## 4.2 SECOM
 
 ```{r, eval=FALSE}
-cl = makeCluster(5)
+cl = makeCluster(10)
 registerDoParallel(cl)
 
-res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("microbiome", "doParallel")) %dorng% {
+res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("microbiome", "tidyverse", "doParallel")) %dorng% {
   params = strsplit(i, "_")[[1]]
   n = as.numeric(params[1])
   d = as.numeric(params[2])
@@ -1101,42 +1644,62 @@ res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packag
   
   pseqs = list(c(otu_data1, otu_data1),
                c(otu_data2, otu_data2))
-  pesudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
+  pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
   wins_quant = c(0, 1); method = "pearson"; soft = FALSE; thresh_len = 20
-  n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 1
+  n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.001; n_cl = 1
   
-  res_secom = secom_linear(pseqs, pesudo, zero_cut, corr_cut, lib_cut, 
-                           wins_quant, method, soft, thresh_len, n_cv, 
-                           seed, thresh_hard, max_p, n_cl)
+  res_linear = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                            wins_quant, method, soft, thresh_len, n_cv, 
+                            seed, thresh_hard, max_p, n_cl)
+  R = 1000; max_p = 0.001
+  res_dist = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+                        wins_quant, R, seed, max_p, n_cl)
   
-  R_hat_secom1 = res_secom$corr_th
-  R_hat_secom2 = res_secom$corr_fl
+  taxa_keep = rownames(res_linear$corr)
+  taxa_id = c(paste0("data1 - ", taxa_id1), paste0("data2 - ", taxa_id2))
+  pos_idx = match(taxa_keep, taxa_id)
+  R_hat_secom1 = matrix(0, ncol = 2 * d, nrow = 2 * d)
+  R_hat_secom1[pos_idx, pos_idx] = res_linear$corr_th
+  R_hat_secom2 = matrix(0, ncol = 2 * d, nrow = 2 * d)
+  R_hat_secom2[pos_idx, pos_idx] = res_linear$corr_fl
+  R_hat_secom3 = matrix(0, ncol = 2 * d, nrow = 2 * d)
+  R_hat_secom3[pos_idx, pos_idx] = res_dist$dcorr_fl
+  
+  
   R_hat_secom1 = R_hat_secom1[seq_len(d), seq(d + 1, 2 * d)]
   dimnames(R_hat_secom1) = list(taxa_id1, taxa_id2)
   R_hat_secom2 = R_hat_secom2[seq_len(d), seq(d + 1, 2 * d)]
   dimnames(R_hat_secom2) = list(taxa_id1, taxa_id2)
+  R_hat_secom3 = R_hat_secom3[seq_len(d), seq(d + 1, 2 * d)]
+  dimnames(R_hat_secom3) = list(taxa_id1, taxa_id2)
   
   # Relative error of Frobenius norm
   rel_F_secom1 = norm(R_hat_secom1 - R0, type = "F")/norm(R0, type = "F")
   rel_F_secom2 = norm(R_hat_secom2 - R0, type = "F")/norm(R0, type = "F")
+  rel_F_secom3 = norm(R_hat_secom3 - R0, type = "F")/norm(R0, type = "F")
   
   # Relative error of Spectral norm
   rel_S_secom1 = norm(R_hat_secom1 - R0, type = "F")/norm(R0, type = "2")
   rel_S_secom2 = norm(R_hat_secom2 - R0, type = "F")/norm(R0, type = "2")
+  rel_S_secom3 = norm(R_hat_secom3 - R0, type = "F")/norm(R0, type = "2")
   
   # TPR
   true_ind = (R0 != 0)
   secom_ind1 = (R_hat_secom1 != 0)
   secom_ind2 = (R_hat_secom2 != 0)
+  secom_ind3 = (R_hat_secom3 != 0)
   tpr_secom1 = sum(secom_ind1 * true_ind)/sum(true_ind)
   tpr_secom2 = sum(secom_ind2 * true_ind)/sum(true_ind)
+  tpr_secom3 = sum(secom_ind3 * true_ind)/sum(true_ind)
   
   # FPR
   fpr_secom1 = sum(secom_ind1 * (!true_ind))/sum(!true_ind)
   fpr_secom2 = sum(secom_ind2 * (!true_ind))/sum(!true_ind)
+  fpr_secom3 = sum(secom_ind3 * (!true_ind))/sum(!true_ind)
   
   c(rel_F_secom1, rel_S_secom1, tpr_secom1, fpr_secom1, 
-    rel_F_secom2, rel_S_secom2, tpr_secom2, fpr_secom2)
+    rel_F_secom2, rel_S_secom2, tpr_secom2, fpr_secom2,
+    rel_F_secom3, rel_S_secom3, tpr_secom3, fpr_secom3)
 }
 
 stopCluster(cl)
@@ -1144,7 +1707,7 @@ stopCluster(cl)
 write_csv(data.frame(res_sim), "complex_secom.csv")
 ```
 
-## 3.3 SparCC
+## 4.3 SparCC
 
 ```{r, eval=FALSE}
 cl = makeCluster(5)
@@ -1197,7 +1760,7 @@ stopCluster(cl)
 write_csv(data.frame(res_sim), "complex_sparcc.csv")
 ```
 
-## 3.4 Standard Pearson correlation coefficient
+## 4.4 Standard Pearson correlation coefficient
 
 ```{r, eval=FALSE}
 cl = makeCluster(5)
@@ -1256,7 +1819,7 @@ stopCluster(cl)
 write_csv(data.frame(res_sim), "complex_sample.csv")
 ```
 
-## 3.5 Proportionality
+## 4.5 Proportionality
 
 ```{r, eval=FALSE}
 cl = makeCluster(5)
@@ -1324,13 +1887,13 @@ stopCluster(cl)
 write_csv(data.frame(res_sim), "complex_prop.csv")
 ```
 
-## 3.6 SPIEC-EASI
+## 4.6 SPIEC-EASI (MB)
 
 ```{r, eval=FALSE}
-cl = makeCluster(15)
+cl = makeCluster(20)
 registerDoParallel(cl)
 
-res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("SpiecEasi")) %dorng% {
+res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("SpiecEasi", "Matrix")) %dorng% {
   params = strsplit(i, "_")[[1]]
   n = as.numeric(params[1])
   d = as.numeric(params[2])
@@ -1352,61 +1915,108 @@ res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packag
   O = rbind(O1, O2)
   se_mb = spiec.easi(t(O), method = "mb", lambda.min.ratio = 1e-2,
                      nlambda = 20, pulsar.params = list(rep.num = 50))
-  se_gl = spiec.easi(t(O), method = "glasso", lambda.min.ratio = 1e-2,
-                     nlambda = 20, pulsar.params = list(rep.num = 50))
   
-  R_hat_se1 = as.matrix(getRefit(se_mb))
-  R_hat_se2 = as.matrix(getRefit(se_gl))
+  se_beta = symBeta(getOptBeta(se_mb), mode = "maxabs")
   
+  R_hat_se1 = as.matrix(se_beta)
   R_hat_se1 = R_hat_se1[seq_len(d), seq(d + 1, 2 * d)]
-  R_hat_se2 = R_hat_se2[seq_len(d), seq(d + 1, 2 * d)]
   dimnames(R_hat_se1) = list(taxa_id1, taxa_id2)
-  dimnames(R_hat_se2) = list(taxa_id1, taxa_id2)
   
   # Relative error of Frobenius norm
   rel_F_se1 = norm(R_hat_se1 - R0, type = "F")/norm(R0, type = "F")
-  rel_F_se2 = norm(R_hat_se2 - R0, type = "F")/norm(R0, type = "F")
   
   # Relative error of Spectral norm
   rel_S_se1 = norm(R_hat_se1 - R0, type = "F")/norm(R0, type = "2")
-  rel_S_se2 = norm(R_hat_se2 - R0, type = "F")/norm(R0, type = "2")
   
   # TPR
   true_ind = (R0 != 0)
   se_ind1 = (R_hat_se1 != 0)
-  se_ind2 = (R_hat_se2 != 0)
   tpr_se1 = sum(se_ind1 * true_ind)/sum(true_ind)
-  tpr_se2 = sum(se_ind2 * true_ind)/sum(true_ind)
   
   # FPR
   fpr_se1 = sum(se_ind1 * (!true_ind))/sum(!true_ind)
-  fpr_se2 = sum(se_ind2 * (!true_ind))/sum(!true_ind)
   
-  c(rel_F_se1, rel_S_se1, tpr_se1, fpr_se1, 
-    rel_F_se2, rel_S_se2, tpr_se2, fpr_se2)
+  c(rel_F_se1, rel_S_se1, tpr_se1, fpr_se1)
 }
 
 stopCluster(cl)
 
-write_csv(data.frame(res_sim), "complex_se.csv")
+write_csv(data.frame(res_sim), "complex_se_mb.csv")
 ```
 
-## 3.7 Visualization
+## 4.7 SPIEC-EASI (GL)
+
+```{r, eval=FALSE}
+cl = makeCluster(20)
+registerDoParallel(cl)
+
+res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packages = c("SpiecEasi", "Matrix")) %dorng% {
+  params = strsplit(i, "_")[[1]]
+  n = as.numeric(params[1])
+  d = as.numeric(params[2])
+  dispersion = as.numeric(params[3])
+  seed = as.numeric(params[4])
+  
+  sim_data = complex_data_generation(n, d, d1, abn_mean1, abn_prob1, 
+                                     abn_mean2, abn_prob2, dispersion, seed)
+  O1 = sim_data$O1
+  O2 = sim_data$O2
+  R0 = sim_data$R0
+  taxa_id1 = paste0("A", seq_len(d))
+  taxa_id2 = paste0("B", seq_len(d))
+  sample_id = paste0("S", seq_len(n))
+  dimnames(O1) = list(taxa_id1, sample_id)
+  dimnames(O2) = list(taxa_id2, sample_id)
+  dimnames(R0) = list(taxa_id1, taxa_id2)
+  
+  O = rbind(O1, O2)
+  se_gl = spiec.easi(t(O), method = "glasso", lambda.min.ratio = 1e-2,
+                     nlambda = 20, pulsar.params = list(rep.num = 50))
+  se_cor  = cov2cor(getOptCov(se_gl))
+  
+  R_hat_se2 = as.matrix(se_cor * getRefit(se_gl))
+  R_hat_se2 = R_hat_se2[seq_len(d), seq(d + 1, 2 * d)]
+  dimnames(R_hat_se2) = list(taxa_id1, taxa_id2)
+  
+  # Relative error of Frobenius norm
+  rel_F_se2 = norm(R_hat_se2 - R0, type = "F")/norm(R0, type = "F")
+  
+  # Relative error of Spectral norm
+  rel_S_se2 = norm(R_hat_se2 - R0, type = "F")/norm(R0, type = "2")
+  
+  # TPR
+  true_ind = (R0 != 0)
+  se_ind2 = (R_hat_se2 != 0)
+  tpr_se2 = sum(se_ind2 * true_ind)/sum(true_ind)
+  
+  # FPR
+  fpr_se2 = sum(se_ind2 * (!true_ind))/sum(!true_ind)
+  
+  c(rel_F_se2, rel_S_se2, tpr_se2, fpr_se2)
+}
+
+stopCluster(cl)
+
+write_csv(data.frame(res_sim), "complex_se_gl.csv")
+```
+
+## 4.8 Visualization 1: remove standard Pearson
 
 ```{r, fig.height=8, fig.width=15}
 complex_secom = read_csv("../outputs/complex/complex_secom.csv")
 complex_secom1 = complex_secom[, 1:4]
 complex_secom2 = complex_secom[, 5:8]
+complex_secom3 = complex_secom[, 9:12]
 complex_prop = read_csv("../outputs/complex/complex_prop.csv")
 complex_sparcc = read_csv("../outputs/complex/complex_sparcc.csv")
 complex_sample = read_csv("../outputs/complex/complex_sample.csv")
-complex_se = read_csv("../outputs/complex/complex_se.csv")
-complex_se1 = complex_se[, 1:4]
-complex_se2 = complex_se[, 5:8]
+complex_se1 = read_csv("../outputs/complex/complex_se_mb.csv")
+complex_se2 = read_csv("../outputs/complex/complex_se_gl.csv")
 
 col_lab = c("rel_F", "rel_S", "tpr", "fpr")
 colnames(complex_secom1) = col_lab
 colnames(complex_secom2) = col_lab
+colnames(complex_secom3) = col_lab
 colnames(complex_prop) = col_lab
 colnames(complex_sparcc) = col_lab
 colnames(complex_se1) = col_lab
@@ -1417,10 +2027,13 @@ simpattern = distinct(simparams, n, d, dispersion) %>%
   unite("setting", n:dispersion, sep = ", ")
 
 complex_secom1 = complex_secom1 %>%
-  mutate(method = "SECOM (Thresholding)", 
+  mutate(method = "SECOM (Pearson1)", 
          setting = rep(simpattern$setting, each = iter_num))
 complex_secom2 = complex_secom2 %>%
-  mutate(method = "SECOM (Filtering)", 
+  mutate(method = "SECOM (Pearson2)", 
+         setting = rep(simpattern$setting, each = iter_num))
+complex_secom3 = complex_secom3 %>%
+  mutate(method = "SECOM (Distance)", 
          setting = rep(simpattern$setting, each = iter_num))
 complex_prop = complex_prop %>%
   mutate(method = "Proportionality", 
@@ -1438,8 +2051,8 @@ complex_sample = complex_sample %>%
   mutate(method = "Pearson", 
          setting = rep(simpattern$setting, each = iter_num))
 
-df_complex = rbind(complex_secom1, complex_secom2, complex_prop, 
-                   complex_sparcc, complex_se1, complex_se2, complex_sample)
+df_complex = rbind(complex_secom1, complex_secom2, complex_secom3, complex_prop, 
+                   complex_sparcc, complex_se1, complex_se2)
 
 # Relative norm loss
 df_complex_fig1 = df_complex %>%
@@ -1449,9 +2062,9 @@ df_complex_fig1 = df_complex %>%
   summarise(measure_mean = mean(value),
             measure_sd = sd(value))
 df_complex_fig1$method = factor(df_complex_fig1$method, 
-                                levels = c("SECOM (Thresholding)", "SECOM (Filtering)",
-                                           "Proportionality", "SparCC", 
-                                           "SPIEC-EASI (MB)", "SPIEC-EASI (GL)", "Pearson"))
+                                levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
+                                           "SECOM (Distance)", "Proportionality", "SparCC", 
+                                           "SPIEC-EASI (MB)", "SPIEC-EASI (GL)"))
 df_complex_fig1$setting = factor(df_complex_fig1$setting, 
                                  levels = c("50, 100, 0.5", "50, 100, 2",
                                            "100, 200, 0.5", "100, 200, 2"))
@@ -1461,7 +2074,7 @@ p_complex1 = df_complex_fig1 %>%
   geom_bar(position = "dodge", stat = "identity", color = "black") +
   geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
                 width = .2, position = position_dodge(.9)) +
-  scale_fill_brewer(name = NULL, palette = "Dark2") + 
+  scale_fill_nejm(name = NULL) + 
   scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
                               "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
                               "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
@@ -1481,8 +2094,85 @@ df_complex_fig2 = df_complex %>%
   summarise(measure_mean = mean(value),
             measure_sd = sd(value))
 df_complex_fig2$method = factor(df_complex_fig2$method, 
-                                levels = c("SECOM (Thresholding)", "SECOM (Filtering)",
-                                           "Proportionality", "SparCC", 
+                                levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
+                                           "SECOM (Distance)", "Proportionality", "SparCC", 
+                                           "SPIEC-EASI (MB)", "SPIEC-EASI (GL)"))
+df_complex_fig2$setting = factor(df_complex_fig2$setting, 
+                                 levels = c("50, 100, 0.5", "50, 100, 2",
+                                           "100, 200, 0.5", "100, 200, 2"))
+
+p_complex2 = df_complex_fig2 %>%
+  ggplot(aes(x = setting, y = measure_mean, fill = method)) + 
+  geom_bar(position = "dodge", stat = "identity", color = "black") +
+  geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
+                width = .2, position = position_dodge(.9)) +
+  scale_fill_nejm(name = NULL) + 
+  scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
+                              "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
+                              "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
+                              "100, 200, 2" = "(n = 100, d = 200, \u03B1 = 2)")) +
+  facet_grid(rows = vars(measure), scales = "free", switch = "y", 
+             labeller = labeller(measure = c(tpr = "TPR", fpr = "FPR"))) +
+  labs(title = "FPR/TPR", x = NULL, y = NULL) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        strip.background = element_rect(fill = "white"))
+
+p_complex = ggarrange(p_complex1, p_complex2, ncol = 2, nrow = 1,
+                     labels = c("a", "b"), common.legend = TRUE, legend = "bottom")
+print(p_complex)
+ggsave(plot = p_complex, "../images/main/sim_complex.pdf", height = 8, width = 15)   
+ggsave(plot = p_complex, "../images/main/sim_complex.jpeg", height = 8, width = 15, dpi = 300)
+```
+
+## 4.9 Visualization 2: all groups
+
+```{r, fig.height=8, fig.width=15}
+df_complex = rbind(complex_secom1, complex_secom2, complex_secom3, complex_prop, 
+                   complex_sparcc, complex_se1, complex_se2, complex_sample)
+
+# Relative norm loss
+df_complex_fig1 = df_complex %>%
+  dplyr::select(rel_F, rel_S, method, setting) %>%
+  pivot_longer(cols = rel_F:rel_S, names_to = "measure", values_to = "value") %>%
+  group_by(method, setting, measure) %>%
+  summarise(measure_mean = mean(value),
+            measure_sd = sd(value))
+df_complex_fig1$method = factor(df_complex_fig1$method, 
+                                levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
+                                           "SECOM (Distance)", "Proportionality", "SparCC", 
+                                           "SPIEC-EASI (MB)", "SPIEC-EASI (GL)", "Pearson"))
+df_complex_fig1$setting = factor(df_complex_fig1$setting, 
+                                 levels = c("50, 100, 0.5", "50, 100, 2",
+                                           "100, 200, 0.5", "100, 200, 2"))
+
+p_complex1 = df_complex_fig1 %>%
+  ggplot(aes(x = setting, y = measure_mean, fill = method)) + 
+  geom_bar(position = "dodge", stat = "identity", color = "black") +
+  geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
+                width = .2, position = position_dodge(.9)) +
+  scale_fill_nejm(name = NULL) + 
+  scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
+                              "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
+                              "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
+                              "100, 200, 2" = "(n = 100, d = 200, \u03B1 = 2)")) +
+  facet_grid(rows = vars(measure), scales = "free", switch = "y", 
+             labeller = labeller(measure = c(rel_F = "Frobenius", rel_S = "Spectral"))) +
+  labs(title = "Relative Norm Loss", x = NULL, y = NULL) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        strip.background = element_rect(fill = "white"))
+
+# TPR/FPR
+df_complex_fig2 = df_complex %>%
+  dplyr::select(tpr, fpr, method, setting) %>%
+  pivot_longer(cols = tpr:fpr, names_to = "measure", values_to = "value") %>%
+  group_by(method, setting, measure) %>%
+  summarise(measure_mean = mean(value),
+            measure_sd = sd(value))
+df_complex_fig2$method = factor(df_complex_fig2$method, 
+                                levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
+                                           "SECOM (Distance)", "Proportionality", "SparCC", 
                                            "SPIEC-EASI (MB)", "SPIEC-EASI (GL)", "Pearson"))
 df_complex_fig2$setting = factor(df_complex_fig2$setting, 
                                  levels = c("50, 100, 0.5", "50, 100, 2",
@@ -1493,14 +2183,14 @@ p_complex2 = df_complex_fig2 %>%
   geom_bar(position = "dodge", stat = "identity", color = "black") +
   geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
                 width = .2, position = position_dodge(.9)) +
-  scale_fill_brewer(name = NULL, palette = "Dark2") + 
+  scale_fill_nejm(name = NULL) + 
   scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
                               "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
                               "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
                               "100, 200, 2" = "(n = 100, d = 200, \u03B1 = 2)")) +
   facet_grid(rows = vars(measure), scales = "free", switch = "y", 
              labeller = labeller(measure = c(tpr = "TPR", fpr = "FPR"))) +
-  labs(title = "Sparsity Recovery", x = NULL, y = NULL) +
+  labs(title = "FPR/TPR", x = NULL, y = NULL) +
   theme_bw() +
   theme(plot.title = element_text(hjust = 0.5),
         strip.background = element_rect(fill = "white"))
@@ -1508,8 +2198,8 @@ p_complex2 = df_complex_fig2 %>%
 p_complex = ggarrange(p_complex1, p_complex2, ncol = 2, nrow = 1,
                      labels = c("a", "b"), common.legend = TRUE, legend = "bottom")
 print(p_complex)
-ggsave(plot = p_complex, "../images/main/sim_complex.pdf", height = 8, width = 15)   
-ggsave(plot = p_complex, "../images/main/sim_complex.jpeg", height = 8, width = 15, dpi = 300)
+ggsave(plot = p_complex, "../images/supp/supp_sim_complex.pdf", height = 8, width = 15)   
+ggsave(plot = p_complex, "../images/supp/supp_sim_complex.jpeg", height = 8, width = 15, dpi = 300)
 ```
 
 # Session information

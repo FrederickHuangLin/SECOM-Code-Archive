@@ -54,7 +54,7 @@ linear_data_generation = function(n, d, d1, corr_mu, corr_prob,
   R0[seq_len(d1), seq_len(d1)] = R0_sub
   
   # Sequencing efficiency
-  C = exp(rnorm(d, mean = 0, sd = 1))
+  C = rbeta(n = d, shape1 = 5, shape2 = 5)
   
   # Microbial loads in the ecosystem
   A_prim = A * C

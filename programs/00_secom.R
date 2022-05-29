@@ -36,7 +36,7 @@ s_diff_est = function(pseq, zero_cut, lib_cut) {
 }
 
 # Absolute abundance estimation
-abs_est = function(pseqs, pesudo, zero_cut, lib_cut) {
+abs_est = function(pseqs, pseudo, zero_cut, lib_cut) {
   pseq1 = pseqs[[1]]
   pseq2 = pseqs[[2]]
   
@@ -53,7 +53,7 @@ abs_est = function(pseqs, pesudo, zero_cut, lib_cut) {
   d = dim(O)[1]
   tax_keep = which(rowSums(O == 0, na.rm = TRUE)/n <= zero_cut)
   samp_keep = names(s_diff_hat)
-  O_cut = O[tax_keep, samp_keep] + pesudo
+  O_cut = O[tax_keep, samp_keep] + pseudo
   
   o = log(O_cut)
   o[is.infinite(o)] = NA
@@ -145,7 +145,7 @@ sparse_linear = function(mat, wins_quant, method, soft, thresh_len,
   corr[mat_cooccur == 0] = 0
 
   # Cross-Validation
-  max_thresh = max(abs(corr[corr != 1]))
+  max_thresh = max(abs(corr[corr != 1]), na.rm = TRUE)
   thresh_grid = seq(from = 0, to = max_thresh, length.out = thresh_len)
   
   set.seed(seed)
@@ -171,6 +171,7 @@ sparse_linear = function(mat, wins_quant, method, soft, thresh_len,
   corr_p = corr_list$P
   diag(corr_p) = 0
   corr_p[mat_cooccur == 0] = 1
+  corr_p[is.na(corr_p)] = 1
   corr_fl = p_filter(mat = corr, mat_p = corr_p, max_p = max_p)
 
   # Output
@@ -237,31 +238,60 @@ sparse_dist = function(mat, wins_quant, R, seed, max_p) {
   }
   
   set.seed(seed)
-  dcorr_list = foreach(i = seq_len(d - 1), .combine = 'comb', 
-                       .multicombine = TRUE, .packages = "energy") %dorng% {
-    dcorr_i = rep(NA, d)
-    dcorr_p_i = rep(NA, d)
-    
-    mat_i = mat[!is.na(mat[, i]), ]
-    x = mat_i[, i]
-    
-    # Distance correlation
-    dcorr_i[(i + 1):d] = apply(mat_i[, (i + 1):d, drop = FALSE], 2, 
-                               function(y) {
-                                 z = x[!is.na(y)]
-                                 y = y[!is.na(y)]
-                                 dcor(z, y, index = 1.0)
-                                })
-    
-    # P-values
-    dcorr_p_i[(i + 1):d] = apply(mat_i[, (i + 1):d, drop = FALSE], 2, 
-                                 function(y) {
-                                   z = x[!is.na(y)]
-                                   y = y[!is.na(y)]
-                                   dcor.test(z, y, index = 1.0, R = R)$p.value
-                                   })
-    
-    list(dcorr_i, dcorr_p_i)
+  if (is.null(R)) {
+    dcorr_list = foreach(i = seq_len(d - 1), .combine = 'comb', 
+                         .multicombine = TRUE, .packages = "energy") %dorng% {
+       dcorr_i = rep(NA, d)
+       dcorr_p_i = rep(NA, d)
+       
+       mat_i = mat[!is.na(mat[, i]), ]
+       x = mat_i[, i]
+       
+       # Distance correlation
+       dcorr_i[(i + 1):d] = apply(mat_i[, (i + 1):d, drop = FALSE], 2, 
+                                  function(y) {
+                                    z = x[!is.na(y)]
+                                    y = y[!is.na(y)]
+                                    dcor(z, y, index = 1.0)
+                                  })
+       
+       # P-values
+       dcorr_p_i[(i + 1):d] = apply(mat_i[, (i + 1):d, drop = FALSE], 2, 
+                                    function(y) {
+                                      z = x[!is.na(y)]
+                                      y = y[!is.na(y)]
+                                      dcorT.test(z, y)$p.value
+                                    })
+       
+       list(dcorr_i, dcorr_p_i)
+     }
+  } else {
+    dcorr_list = foreach(i = seq_len(d - 1), .combine = 'comb', 
+                         .multicombine = TRUE, .packages = "energy") %dorng% {
+       dcorr_i = rep(NA, d)
+       dcorr_p_i = rep(NA, d)
+       
+       mat_i = mat[!is.na(mat[, i]), ]
+       x = mat_i[, i]
+       
+       # Distance correlation
+       dcorr_i[(i + 1):d] = apply(mat_i[, (i + 1):d, drop = FALSE], 2, 
+                                  function(y) {
+                                    z = x[!is.na(y)]
+                                    y = y[!is.na(y)]
+                                    dcor(z, y, index = 1.0)
+                                  })
+       
+       # P-values
+       dcorr_p_i[(i + 1):d] = apply(mat_i[, (i + 1):d, drop = FALSE], 2, 
+                                    function(y) {
+                                      z = x[!is.na(y)]
+                                      y = y[!is.na(y)]
+                                      dcor.test(z, y, index = 1.0, R = R)$p.value
+                                    })
+       
+       list(dcorr_i, dcorr_p_i)
+     }
   }
   
   dcorr = rbind(dcorr_list[[1]], rep(NA, d))
@@ -273,6 +303,7 @@ sparse_dist = function(mat, wins_quant, R, seed, max_p) {
   dcorr_p[lower.tri(dcorr_p)] = t(dcorr_p)[lower.tri(dcorr_p)]
   diag(dcorr_p) = 0
   dcorr_p[mat_cooccur == 0] = 1
+  dcorr_p[is.na(dcorr_p)] = 1
   dimnames(dcorr) = list(taxanames, taxanames)
   dimnames(dcorr_p) = list(taxanames, taxanames)
   
@@ -287,14 +318,14 @@ sparse_dist = function(mat, wins_quant, R, seed, max_p) {
 }
 
 # Wrapper function
-secom_linear = function(pseqs, pesudo = 0, zero_cut = 0.5, corr_cut = 0.5, 
+secom_linear = function(pseqs, pseudo = 0, zero_cut = 0.5, corr_cut = 0.5, 
                         lib_cut = 1000, wins_quant = c(0.05, 0.95), 
                         method = c("pearson", "kendall", "spearman"),
                         soft = FALSE, thresh_len = 100, n_cv = 10, seed = 123, 
                         thresh_hard = 0.3, max_p = 0.005, n_cl = 1) {
   # ===========Sampling fraction and absolute abundance estimation==============
   if (length(pseqs) == 1) {
-    abs_list = abs_est(pseqs[[1]], pesudo, zero_cut, lib_cut)
+    abs_list = abs_est(pseqs[[1]], pseudo, zero_cut, lib_cut)
     s_diff_hat = abs_list$s_diff_hat
     y_hat = abs_list$y_hat
   } else {
@@ -312,12 +343,14 @@ secom_linear = function(pseqs, pesudo = 0, zero_cut = 0.5, corr_cut = 0.5,
     
     # Rename taxa
     for (i in seq_along(pseqs)) {
-      taxa_names(pseqs[[i]][[1]]) = paste(taxa_names(pseqs[[i]][[1]]), 
-                                          names(pseqs)[i], sep = " - ")
-      taxa_names(pseqs[[i]][[2]]) = paste(taxa_names(pseqs[[i]][[2]]), 
-                                          names(pseqs)[i], sep = " - ")
+      taxa_names(pseqs[[i]][[1]]) = paste(names(pseqs)[i], 
+                                          taxa_names(pseqs[[i]][[1]]), 
+                                          sep = " - ")
+      taxa_names(pseqs[[i]][[2]]) = paste(names(pseqs)[i], 
+                                          taxa_names(pseqs[[i]][[2]]), 
+                                          sep = " - ")
     }
-    abs_list = lapply(pseqs, function(x) abs_est(x, pesudo, zero_cut, lib_cut))
+    abs_list = lapply(pseqs, function(x) abs_est(x, pseudo, zero_cut, lib_cut))
     s_diff_hat = lapply(abs_list, function(x) x$s_diff_hat)
     y_hat = bind_rows(lapply(abs_list, function(x) as.data.frame(x$y_hat)))
     y_hat = as.matrix(y_hat)
@@ -373,12 +406,12 @@ secom_linear = function(pseqs, pesudo = 0, zero_cut = 0.5, corr_cut = 0.5,
   return(res)
 }
 
-secom_dist = function(pseqs, pesudo = 0, zero_cut = 0.5, corr_cut = 0.5, 
+secom_dist = function(pseqs, pseudo = 0, zero_cut = 0.5, corr_cut = 0.5, 
                       lib_cut = 1000, wins_quant = c(0.05, 0.95), R = 1000, 
                       seed = 123, max_p = 0.005, n_cl = 1) {
   # ===========Sampling fraction and absolute abundance estimation==============
   if (length(pseqs) == 1) {
-    abs_list = abs_est(pseqs[[1]], pesudo, zero_cut, lib_cut)
+    abs_list = abs_est(pseqs[[1]], pseudo, zero_cut, lib_cut)
     s_diff_hat = abs_list$s_diff_hat
     y_hat = abs_list$y_hat
   } else {
@@ -396,12 +429,14 @@ secom_dist = function(pseqs, pesudo = 0, zero_cut = 0.5, corr_cut = 0.5,
     
     # Rename taxa
     for (i in seq_along(pseqs)) {
-      taxa_names(pseqs[[i]][[1]]) = paste(taxa_names(pseqs[[i]][[1]]), 
-                                          names(pseqs)[i], sep = " - ")
-      taxa_names(pseqs[[i]][[2]]) = paste(taxa_names(pseqs[[i]][[2]]), 
-                                          names(pseqs)[i], sep = " - ")
+      taxa_names(pseqs[[i]][[1]]) = paste(names(pseqs)[i], 
+                                          taxa_names(pseqs[[i]][[1]]), 
+                                          sep = " - ")
+      taxa_names(pseqs[[i]][[2]]) = paste(names(pseqs)[i], 
+                                          taxa_names(pseqs[[i]][[2]]), 
+                                          sep = " - ")
     }
-    abs_list = lapply(pseqs, function(x) abs_est(x, pesudo, zero_cut, lib_cut))
+    abs_list = lapply(pseqs, function(x) abs_est(x, pseudo, zero_cut, lib_cut))
     s_diff_hat = lapply(abs_list, function(x) x$s_diff_hat)
     y_hat = bind_rows(lapply(abs_list, function(x) as.data.frame(x$y_hat)))
     y_hat = as.matrix(y_hat)
