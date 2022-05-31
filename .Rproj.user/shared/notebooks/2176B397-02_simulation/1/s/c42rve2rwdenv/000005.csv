@@ -1,0 +1,2 @@
+"0","ggsave(plot = p_linear, ""../images/supp/supp_sim_linear.pdf"", height = 8, width = 15)   "
+"0","ggsave(plot = p_linear, ""../images/supp/supp_sim_linear.jpeg"", height = 8, width = 15, dpi = 300)"

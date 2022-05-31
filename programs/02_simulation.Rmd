@@ -199,16 +199,9 @@ res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packag
   fpr_secom2 = sum(secom_ind2 * (!true_ind))/sum(!true_ind)
   fpr_secom3 = sum(secom_ind3 * (!true_ind))/sum(!true_ind)
   
-  # Compare two measures
-  count11 = sum(secom_ind2 == 1 & secom_ind3 == 1)
-  count10 = sum(secom_ind2 == 1 & secom_ind3 == 0)
-  count01 = sum(secom_ind2 == 0 & secom_ind3 == 1)
-  count00 = sum(secom_ind2 == 0 & secom_ind3 == 0)
-  
   c(rel_F_secom1, rel_S_secom1, tpr_secom1, fpr_secom1, 
     rel_F_secom2, rel_S_secom2, tpr_secom2, fpr_secom2,
-    rel_F_secom3, rel_S_secom3, tpr_secom3, fpr_secom3,
-    count11, count10, count01, count00)
+    rel_F_secom3, rel_S_secom3, tpr_secom3, fpr_secom3)
 }
 
 stopCluster(cl)
@@ -485,7 +478,6 @@ linear_secom = read_csv("../outputs/linear/linear_secom.csv")
 linear_secom1 = linear_secom[, 1:4]
 linear_secom2 = linear_secom[, 5:8]
 linear_secom3 = linear_secom[, 9:12]
-secom_compare = linear_secom[, 13:16]
 linear_prop = read_csv("../outputs/linear/linear_prop.csv")
 linear_sparcc = read_csv("../outputs/linear/linear_sparcc.csv")
 linear_se = read_csv("../outputs/linear/linear_se.csv")
@@ -684,34 +676,6 @@ ggsave(plot = p_linear, "../images/supp/supp_sim_linear.pdf", height = 8, width 
 ggsave(plot = p_linear, "../images/supp/supp_sim_linear.jpeg", height = 8, width = 15, dpi = 300)
 ```
 
-## 1.9 Compare SECOM results between Pearson and Distance measures
-
-* (1, 1): Pearson = TRUE, distance = TRUE
-    
-* (1, 0): Pearson = TRUE, distance = FALSE
-
-* (0, 1): Pearson = FALSE, distance = TRUE
-
-* (0, 0): Pearson = FALSE, distance = FALSE
-
-```{r}
-secom_compare = secom_compare %>%
-  mutate(setting = rep(simpattern$setting, each = iter_num))
-
-secom_compare2 = secom_compare %>%
-  group_by(setting) %>%
-  summarise_all(mean) %>%
-  mutate_if(is.numeric, function(x) round(x))
-
-colnames(secom_compare2) = c("Setting", "(1, 1)", "(1, 0)", "(0, 1)", "(0, 0)")
-secom_compare2$Setting = factor(secom_compare2$Setting, 
-                                levels = c("50, 100, 0.5", "50, 100, 2",
-                                           "100, 200, 0.5", "100, 200, 2"))
-secom_compare2 = secom_compare2 %>%
-  arrange(Setting)
-datatable(secom_compare2)
-```
-
 # 2. Synthetic data: nonlinear correlations {.tabset}
 
 ## 2.1 Data generation
@@ -863,16 +827,9 @@ res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packag
   fpr_secom2 = sum(secom_ind2 * (!true_ind))/sum(!true_ind)
   fpr_secom3 = sum(secom_ind3 * (!true_ind))/sum(!true_ind)
   
-  # Compare two measures
-  count11 = sum(secom_ind2 == 1 & secom_ind3 == 1)
-  count10 = sum(secom_ind2 == 1 & secom_ind3 == 0)
-  count01 = sum(secom_ind2 == 0 & secom_ind3 == 1)
-  count00 = sum(secom_ind2 == 0 & secom_ind3 == 0)
-  
   c(tpr_secom1, fpr_secom1, 
     tpr_secom2, fpr_secom2,
-    tpr_secom3, fpr_secom3,
-    count11, count10, count01, count00)
+    tpr_secom3, fpr_secom3)
 }
 
 stopCluster(cl)
@@ -1077,7 +1034,6 @@ nonlinear_secom = read_csv("../outputs/nonlinear/nonlinear_secom.csv")
 nonlinear_secom1 = nonlinear_secom[, 1:2]
 nonlinear_secom2 = nonlinear_secom[, 3:4]
 nonlinear_secom3 = nonlinear_secom[, 5:6]
-secom_compare = nonlinear_secom[, 7:10]
 nonlinear_prop = read_csv("../outputs/nonlinear/nonlinear_prop.csv")
 nonlinear_sparcc = read_csv("../outputs/nonlinear/nonlinear_sparcc.csv")
 nonlinear_sample = read_csv("../outputs/nonlinear/nonlinear_sample.csv")
@@ -1214,34 +1170,6 @@ ggsave(filename = "../images/supp/supp_sim_nonlinear.jpeg",
        plot = p_nonlinear, width = 8, height = 6, units = "in", dpi = 300)
 ggsave(filename = "../images/supp/supp_sim_nonlinear.pdf",
        plot = p_nonlinear, width = 8, height = 6)
-```
-
-## 2.9 Compare SECOM results between Pearson and Distance measures
-
-* (1, 1): Pearson = TRUE, distance = TRUE
-    
-* (1, 0): Pearson = TRUE, distance = FALSE
-
-* (0, 1): Pearson = FALSE, distance = TRUE
-
-* (0, 0): Pearson = FALSE, distance = FALSE
-
-```{r}
-secom_compare = secom_compare %>%
-  mutate(setting = rep(simpattern$setting, each = iter_num))
-
-secom_compare2 = secom_compare %>%
-  group_by(setting) %>%
-  summarise_all(mean) %>%
-  mutate_if(is.numeric, function(x) round(x))
-
-colnames(secom_compare2) = c("Setting", "(1, 1)", "(1, 0)", "(0, 1)", "(0, 0)")
-secom_compare2$Setting = factor(secom_compare2$Setting, 
-                                levels = c("50, 100, 0.5", "50, 100, 2",
-                                           "100, 200, 0.5", "100, 200, 2"))
-secom_compare2 = secom_compare2 %>%
-  arrange(Setting)
-datatable(secom_compare2)
 ```
 
 # 3. Compare SECOM results between Pearson and Distance measures {.tabset}

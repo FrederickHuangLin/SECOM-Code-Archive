@@ -164,18 +164,11 @@ res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packag
   # FPR
   fpr_secom1 = sum(secom_ind1 * (!true_ind))/sum(!true_ind)
   fpr_secom2 = sum(secom_ind2 * (!true_ind))/sum(!true_ind)
-  fpr_secom3 = sum(secom_ind3 * (!true_ind))/sum(!true_ind)
-  
-  # Compare two measures
-  count11 = sum(secom_ind2 == 1 & secom_ind3 == 1)
-  count10 = sum(secom_ind2 == 1 & secom_ind3 == 0)
-  count01 = sum(secom_ind2 == 0 & secom_ind3 == 1)
-  count00 = sum(secom_ind2 == 0 & secom_ind3 == 0)
+  fpr_secom3 = sum(secom_ind3 * (!true_ind))/sum(!true_ind) 
   
   c(tpr_secom1, fpr_secom1, 
     tpr_secom2, fpr_secom2,
-    tpr_secom3, fpr_secom3,
-    count11, count10, count01, count00)
+    tpr_secom3, fpr_secom3)
 }
 
 stopCluster(cl)

@@ -1,0 +1,40 @@
+"0","knitr::opts_chunk$set(echo = TRUE, warning = FALSE, "
+"0","                      message = FALSE, comment = NA,"
+"0","                      fig.width = 6.25, fig.height = 5)"
+"0","library(tidyverse)"
+"0","library(microbiome)"
+"0","library(GGally)"
+"2","Registered S3 method overwritten by 'GGally':
+  method from   
+  +.gg   ggplot2
+"
+"0","library(plotly)"
+"2","
+Attaching package: ‘plotly’
+
+"
+"2","The following object is masked from ‘package:Hmisc’:
+
+    subplot
+
+"
+"2","The following object is masked from ‘package:ggplot2’:
+
+    last_plot
+
+"
+"2","The following object is masked from ‘package:stats’:
+
+    filter
+
+"
+"2","The following object is masked from ‘package:graphics’:
+
+    layout
+
+"
+"0","library(SpiecEasi)"
+"0","library(ggpubr)"
+"0","library(ggsci)"
+"0",""
+"0","source(""../programs/00_secom.R"")"

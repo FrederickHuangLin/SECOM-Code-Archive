@@ -238,60 +238,31 @@ sparse_dist = function(mat, wins_quant, R, seed, max_p) {
   }
   
   set.seed(seed)
-  if (is.null(R)) {
-    dcorr_list = foreach(i = seq_len(d - 1), .combine = 'comb', 
-                         .multicombine = TRUE, .packages = "energy") %dorng% {
-       dcorr_i = rep(NA, d)
-       dcorr_p_i = rep(NA, d)
-       
-       mat_i = mat[!is.na(mat[, i]), ]
-       x = mat_i[, i]
-       
-       # Distance correlation
-       dcorr_i[(i + 1):d] = apply(mat_i[, (i + 1):d, drop = FALSE], 2, 
+  dcorr_list = foreach(i = seq_len(d - 1), .combine = 'comb', 
+     .multicombine = TRUE, .packages = "energy") %dorng% {
+     dcorr_i = rep(NA, d)
+     dcorr_p_i = rep(NA, d)
+     
+     mat_i = mat[!is.na(mat[, i]), ]
+     x = mat_i[, i]
+     
+     # Distance correlation
+     dcorr_i[(i + 1):d] = apply(mat_i[, (i + 1):d, drop = FALSE], 2, 
+                                function(y) {
+                                  z = x[!is.na(y)]
+                                  y = y[!is.na(y)]
+                                  dcor(z, y, index = 1.0)
+                                })
+     
+     # P-values
+     dcorr_p_i[(i + 1):d] = apply(mat_i[, (i + 1):d, drop = FALSE], 2, 
                                   function(y) {
                                     z = x[!is.na(y)]
                                     y = y[!is.na(y)]
-                                    dcor(z, y, index = 1.0)
+                                    dcor.test(z, y, index = 1.0, R = R)$p.value
                                   })
-       
-       # P-values
-       dcorr_p_i[(i + 1):d] = apply(mat_i[, (i + 1):d, drop = FALSE], 2, 
-                                    function(y) {
-                                      z = x[!is.na(y)]
-                                      y = y[!is.na(y)]
-                                      dcorT.test(z, y)$p.value
-                                    })
-       
-       list(dcorr_i, dcorr_p_i)
-     }
-  } else {
-    dcorr_list = foreach(i = seq_len(d - 1), .combine = 'comb', 
-                         .multicombine = TRUE, .packages = "energy") %dorng% {
-       dcorr_i = rep(NA, d)
-       dcorr_p_i = rep(NA, d)
-       
-       mat_i = mat[!is.na(mat[, i]), ]
-       x = mat_i[, i]
-       
-       # Distance correlation
-       dcorr_i[(i + 1):d] = apply(mat_i[, (i + 1):d, drop = FALSE], 2, 
-                                  function(y) {
-                                    z = x[!is.na(y)]
-                                    y = y[!is.na(y)]
-                                    dcor(z, y, index = 1.0)
-                                  })
-       
-       # P-values
-       dcorr_p_i[(i + 1):d] = apply(mat_i[, (i + 1):d, drop = FALSE], 2, 
-                                    function(y) {
-                                      z = x[!is.na(y)]
-                                      y = y[!is.na(y)]
-                                      dcor.test(z, y, index = 1.0, R = R)$p.value
-                                    })
-       
-       list(dcorr_i, dcorr_p_i)
-     }
+     
+     list(dcorr_i, dcorr_p_i)
   }
   
   dcorr = rbind(dcorr_list[[1]], rep(NA, d))
