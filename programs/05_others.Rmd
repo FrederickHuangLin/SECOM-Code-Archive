@@ -17,17 +17,18 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE,
 
 library(tidyverse)
 library(microbiome)
+library(ANCOMBC)
+library(energy)
 library(compositions)
 library(lubridate)
 library(ggpubr)
 library(ggsci)
 library(mice)
+library(gbm)
 library(DT)
 options(DT.options = list(
   initComplete = JS("function(settings, json) {",
   "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});","}")))
-
-source("../programs/00_secom.R")
 ```
 
 ```{r, helper}
@@ -123,14 +124,15 @@ otu_data = phyloseq(OTU, META)
 
 # SECOM
 pseqs = list(c(otu_data, otu_data))
-pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
+pseudo = 0; prv_cut = 0.5; lib_cut = 1000; corr_cut = 0.5
 wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
 n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5
 
+set.seed(123)
 t_start = Sys.time()
-res_linear = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+res_linear = secom_linear(pseqs, pseudo, prv_cut, lib_cut, corr_cut, 
                           wins_quant, method, soft, thresh_len, n_cv, 
-                          seed, thresh_hard, max_p, n_cl)
+                          thresh_hard, max_p, n_cl)
 t_end = Sys.time()
 t_secom = difftime(t_end, t_start, units = "secs")
 
@@ -202,7 +204,7 @@ df_t = read_csv("../outputs/others/cpu_time.csv")
 datatable(df_t)
 ```
 
-# 2. Linear vs. distance correlations
+# 2. Pearson vs. distance correlations
 
 ```{r, fig.height=5, fig.width=10}
 df = data.frame(x = seq(0, 10, 0.5)) %>% 
@@ -286,21 +288,21 @@ ggsave(plot = p, "../images/supp/supp_org_rank.jpeg", height = 8, width = 10, dp
 
 ## 4.1 Adding pseudo-counts {.tabset}
 
-### Uncorrelated pair
+### Structural zeros
 
 ```{r}
+# Uncorrelated pair
 set.seed(123)
 n = 20
 A1 = rnbinom(n = n, size = 2, mu = 200)
 A2 = rnbinom(n = n, size = 2, mu = 200)
-a1 = log(A1)
-a2 = log(A2)
-O1 = floor(A1 * 0.25)
-O2 = floor(A2 * 0.25)
-O1[1:8] = 0
-O2[13:20] = 0
+A1[1:8] = 0
+A2[13:20] = 0
+O1 = floor(A1 * 0.1)
+O2 = floor(A2 * 0.1)
 
-df0 = data.frame(tax1 = a1, tax2 = a2)
+df0 = data.frame(tax1 = log(A1), tax2 = log(A2)) %>%
+  mutate_if(is.numeric, list(~na_if(., -Inf)))
 
 df1 = data.frame(tax1 = log(O1), tax2 = log(O2)) %>%
   mutate_if(is.numeric, list(~na_if(., -Inf)))
@@ -320,7 +322,7 @@ df = df0 %>%
   )
 df$type = factor(df$type, c("True abundances", "CCA", "Add One"))
 
-ann = data.frame(x = c(5, 3, 1.5), y = c(5.8, 4.4, 4), 
+ann = data.frame(x = c(5, 2.5, 1.5), y = c(5.9, 3.6, 3.4), 
                  label = c(paste0("r = ", round(cor.test(df0$tax1, df0$tax2, method = "pearson")$estimate, 2),
                                   "\np = ", round(cor.test(df0$tax1, df0$tax2, method = "pearson")$p.value, 2)),
                            paste0("r = ", round(cor.test(df1$tax1, df1$tax2, method = "pearson")$estimate, 2),
@@ -334,29 +336,26 @@ p_pseudo1 = ggplot(data = df, aes(x = tax1, y = tax2)) +
   geom_point() +
   facet_wrap(.~type, scales = "free") +
   geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
-  labs(x = "Taxon 1", y = "Taxon 2", title = "Uncorrelated Pair") + 
+  labs(x = "Taxon 1", y = "Taxon 2", 
+       title = "Uncorrelated Pair and Structural Zeros") + 
   geom_label(data = ann, aes(x = x, y = y, label = label),
              color = "orange", size = 4, fontface = "bold") +
   theme_bw() +
   theme(strip.background = element_rect(fill = "white"),
         plot.title = element_text(hjust = 0.5))
-```
 
-### Correlated pair
-
-```{r}
+# Correlated pair
 set.seed(123)
 n = 20
 A1 = rnbinom(n = n, size = 2, mu = 200)
 A2 = 2 * A1
-a1 = log(A1)
-a2 = log(A2)
-O1 = floor(A1 * 0.25)
-O2 = floor(A2 * 0.25)
-O1[1:7] = 0
-O2[14:20] = 0
+A1[1:7] = 0
+A2[14:20] = 0
+O1 = floor(A1 * 0.1)
+O2 = floor(A2 * 0.1)
 
-df0 = data.frame(tax1 = a1, tax2 = a2)
+df0 = data.frame(tax1 = log(A1), tax2 = log(A2)) %>%
+  mutate_if(is.numeric, list(~na_if(., -Inf)))
 
 df1 = data.frame(tax1 = log(O1), tax2 = log(O2)) %>%
   mutate_if(is.numeric, list(~na_if(., -Inf)))
@@ -376,7 +375,7 @@ df = df0 %>%
   )
 df$type = factor(df$type, c("True abundances", "CCA", "Add One"))
 
-ann = data.frame(x = c(4, 3, 1.5), y = c(5.8, 4.4, 4), 
+ann = data.frame(x = c(4, 1.5, 1.3), y = c(6, 3.6, 3.5), 
                  label = c(paste0("r = ", round(cor.test(df0$tax1, df0$tax2, method = "pearson")$estimate, 2),
                                   "\np = ", round(cor.test(df0$tax1, df0$tax2, method = "pearson")$p.value, 2)),
                            paste0("r = ", round(cor.test(df1$tax1, df1$tax2, method = "pearson")$estimate, 2),
@@ -390,7 +389,114 @@ p_pseudo2 = ggplot(data = df, aes(x = tax1, y = tax2)) +
   geom_point() +
   facet_wrap(.~type, scales = "free") +
   geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
-  labs(x = "Taxon 1", y = "Taxon 2", title = "Correlated Pair") + 
+  labs(x = "Taxon 1", y = "Taxon 2", 
+       title = "Correlated Pair and Structural Zeros") + 
+  geom_label(data = ann, aes(x = x, y = y, label = label),
+             color = "orange", size = 4, fontface = "bold") +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = "white"),
+        plot.title = element_text(hjust = 0.5))
+```
+
+### Sampling zeros
+
+```{r}
+# Uncorrelated pair
+set.seed(123)
+n = 20
+A1 = rnbinom(n = n, size = 2, mu = 200)
+A2 = rnbinom(n = n, size = 2, mu = 200)
+O1 = floor(A1 * 0.01)
+O2 = floor(A2 * 0.01)
+
+df0 = data.frame(tax1 = log(A1), tax2 = log(A2)) %>%
+  mutate_if(is.numeric, list(~na_if(., -Inf)))
+
+df1 = data.frame(tax1 = log(O1), tax2 = log(O2)) %>%
+  mutate_if(is.numeric, list(~na_if(., -Inf)))
+
+df2 = data.frame(tax1 = log(O1 + 1), tax2 = log(O2 + 1)) %>%
+  mutate_if(is.numeric, list(~na_if(., -Inf)))
+
+df = df0 %>%
+  mutate(type = "True abundances") %>%
+  bind_rows(
+    df1 %>%
+      mutate(type = "CCA") 
+  ) %>%
+  bind_rows(
+    df2 %>%
+      mutate(type = "Add One")
+  )
+df$type = factor(df$type, c("True abundances", "CCA", "Add One"))
+
+ann = data.frame(x = c(5, 0.6, 0.6), y = c(5.9, 1.2, 1.4), 
+                 label = c(paste0("r = ", round(cor.test(df0$tax1, df0$tax2, method = "pearson")$estimate, 2),
+                                  "\np = ", round(cor.test(df0$tax1, df0$tax2, method = "pearson")$p.value, 2)),
+                           paste0("r = ", round(cor.test(df1$tax1, df1$tax2, method = "pearson")$estimate, 2),
+                                  "\np = ", round(cor.test(df1$tax1, df1$tax2, method = "pearson")$p.value, 2)),
+                           paste0("r = ", round(cor.test(df2$tax1, df2$tax2, method = "pearson")$estimate, 2),
+                                  "\np = ", round(cor.test(df2$tax1, df2$tax2, method = "pearson")$p.value, 2))),
+                 type = c("True abundances", "CCA", "Add One"))
+ann$type = factor(ann$type, c("True abundances", "CCA", "Add One"))
+
+p_pseudo3 = ggplot(data = df, aes(x = tax1, y = tax2)) +
+  geom_point() +
+  facet_wrap(.~type, scales = "free") +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+  labs(x = "Taxon 1", y = "Taxon 2", 
+       title = "Uncorrelated Pair and Sampling Zeros") + 
+  geom_label(data = ann, aes(x = x, y = y, label = label),
+             color = "orange", size = 4, fontface = "bold") +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = "white"),
+        plot.title = element_text(hjust = 0.5))
+
+# Correlated pair
+set.seed(123)
+n = 20
+A1 = rnbinom(n = n, size = 2, mu = 200)
+A2 = 2 * A1
+O1 = floor(A1 * 0.01)
+O2 = floor(A2 * 0.01)
+
+df0 = data.frame(tax1 = log(A1), tax2 = log(A2)) %>%
+  mutate_if(is.numeric, list(~na_if(., -Inf)))
+
+df1 = data.frame(tax1 = log(O1), tax2 = log(O2)) %>%
+  mutate_if(is.numeric, list(~na_if(., -Inf)))
+
+df2 = data.frame(tax1 = log(O1 + 1), tax2 = log(O2 + 1)) %>%
+  mutate_if(is.numeric, list(~na_if(., -Inf)))
+
+df = df0 %>%
+  mutate(type = "True abundances") %>%
+  bind_rows(
+    df1 %>%
+      mutate(type = "CCA") 
+  ) %>%
+  bind_rows(
+    df2 %>%
+      mutate(type = "Add One")
+  )
+df$type = factor(df$type, c("True abundances", "CCA", "Add One"))
+
+ann = data.frame(x = c(4, 0.6, 0.6), y = c(6.4, 1.9, 2), 
+                 label = c(paste0("r = ", round(cor.test(df0$tax1, df0$tax2, method = "pearson")$estimate, 2),
+                                  "\np = ", round(cor.test(df0$tax1, df0$tax2, method = "pearson")$p.value, 2)),
+                           paste0("r = ", round(cor.test(df1$tax1, df1$tax2, method = "pearson")$estimate, 2),
+                                  "\np = ", round(cor.test(df1$tax1, df1$tax2, method = "pearson")$p.value, 2)),
+                           paste0("r = ", round(cor.test(df2$tax1, df2$tax2, method = "pearson")$estimate, 2),
+                                  "\np = ", round(cor.test(df2$tax1, df2$tax2, method = "pearson")$p.value, 2))),
+                 type = c("True abundances", "CCA", "Add One"))
+ann$type = factor(ann$type, c("True abundances", "CCA", "Add One"))
+
+p_pseudo4 = ggplot(data = df, aes(x = tax1, y = tax2)) +
+  geom_point() +
+  facet_wrap(.~type, scales = "free") +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+  labs(x = "Taxon 1", y = "Taxon 2", 
+       title = "Correlated Pair and Sampling Zeros") + 
   geom_label(data = ann, aes(x = x, y = y, label = label),
              color = "orange", size = 4, fontface = "bold") +
   theme_bw() +
@@ -400,11 +506,12 @@ p_pseudo2 = ggplot(data = df, aes(x = tax1, y = tax2)) +
 
 ### Output
 
-```{r, fig.height=10, fig.width=12}
-p_pseudo = ggarrange(p_pseudo1, p_pseudo2, nrow = 2, labels = c("a", "b"))
+```{r, fig.height=16, fig.width=12}
+p_pseudo = ggarrange(p_pseudo1, p_pseudo2, p_pseudo3, p_pseudo4,  
+                     nrow = 4, labels = c("a", "b", "c", "d"))
 p_pseudo
-ggsave(plot = p_pseudo, "../images/supp/supp_pseudo.pdf", height = 10, width = 12)   
-ggsave(plot = p_pseudo, "../images/supp/supp_pseudo.jpeg", height = 10, width = 12, dpi = 300)
+ggsave(plot = p_pseudo, "../images/supp/supp_pseudo.pdf", height = 16, width = 12)   
+ggsave(plot = p_pseudo, "../images/supp/supp_pseudo.jpeg", height = 16, width = 12, dpi = 300)
 ```
 
 ## 4.2 Imputation {.tabset}
@@ -414,19 +521,22 @@ ggsave(plot = p_pseudo, "../images/supp/supp_pseudo.jpeg", height = 10, width = 
 ```{r, eval=FALSE}
 iter_num = 100
 n = 100
-abn_mean = c(200, 200)
+d = 50
+abn_mean = c(200, 1000, 10000)
 dispersion = 2
 
 cl = makeCluster(5)
 registerDoParallel(cl)
 
-res = foreach(i = seq_len(iter_num), .combine = rbind, .verbose = TRUE, .packages = c("mice")) %dorng% {
-  set.seed(i)
+res = foreach(iter = seq_len(iter_num), .combine = rbind, .verbose = TRUE, .packages = c("mice", "gbm")) %dorng% {
+  set.seed(iter)
   
   template_var = sapply(abn_mean, function(x) 
     log((x + dispersion * x^2)/x^2 + 1))
   template_mean = log(abn_mean) - template_var/2
-  mu = template_mean
+  
+  mu = c(template_mean[1], template_mean[1],
+         sample(template_mean, d - 2, replace = TRUE))
   std = rep(NA, length(mu))
   for (i in seq_along(template_mean)) {
     std[mu == template_mean[i]] = sqrt(template_var[i])
@@ -438,7 +548,8 @@ res = foreach(i = seq_len(iter_num), .combine = rbind, .verbose = TRUE, .package
   A = round(exp(a))
   
   S_list = c(0.1, 0.05, 0.02, 0.01, 0.005)
-  res1 = data.frame(S = S_list, zero_prop = NA, r_complete = NA, r_impute = NA)
+  res1 = data.frame(S = S_list, zero_prop = NA, 
+                    r_cca = NA, r_mice = NA, r_gbm = NA)
   
   for (i in seq_along(S_list)) {
     S = S_list[i]
@@ -447,16 +558,45 @@ res = foreach(i = seq_len(iter_num), .combine = rbind, .verbose = TRUE, .package
     
     o = log(O); o[is.infinite(o)] = NA
     df = data.frame(t(o))
-    colnames(df) = c("o1", "o2")
+    colnames(df) = paste0("T", seq_len(d))
     
-    df_impute = mice(df, m = 1, maxit = 50, meth = "pmm", seed = 123, print = FALSE)
-    df_fill = complete(df_impute, 1)
+    # CCA
+    res_cca = cor.test(df$T1, df$T2)
+    res1$r_cca[i] = res_cca$estimate
     
-    res_complete = cor.test(df$o1, df$o2)
-    res1$r_complete[i] = res_complete$estimate
+    # Mice
+    df_mice = mice(df[, c("T1", "T2")], m = 1, maxit = 50, 
+                   meth = "pmm", seed = 123, print = FALSE)
+    df_fill = complete(df_mice, 1)
+    res_mice = cor.test(df_fill$T1, df_fill$T2)
+    res1$r_mice[i] = res_mice$estimate
     
-    res_impute = cor.test(df_fill$o1, df_fill$o2)
-    res1$r_impute[i] = res_impute$estimate
+    # GBM
+    df_gbm = df
+    T1_good = which(!is.na(df_gbm$T1))
+    T1_bad = which(is.na(df_gbm$T1))
+    df_train = df_gbm[T1_good, ]
+    df_test = df_gbm[T1_bad, ]
+    gbm_fit1 = gbm(T1 ~ ., data = df_train, distribution = "gaussian",
+                   n.trees = 100, shrinkage = 0.1, interaction.depth = 1, 
+                   bag.fraction = 0.5, train.fraction = 1, n.minobsinnode = 1,
+                   cv.folds = 0, keep.data = TRUE, verbose = FALSE)
+    T1_pred = predict(gbm_fit1, newdata = df_test[, -1], n.trees = 100)
+    df_gbm$T1[T1_bad] = T1_pred
+    
+    T2_good = which(!is.na(df_gbm$T2))
+    T2_bad = which(is.na(df_gbm$T2))
+    df_train = df_gbm[T2_good, ]
+    df_test = df_gbm[T2_bad, ]
+    gbm_fiT2 = gbm(T2 ~ ., data = df_train, distribution="gaussian",
+                   n.trees = 100, shrinkage = 0.1, interaction.depth = 1, 
+                   bag.fraction = 0.5, train.fraction = 1, n.minobsinnode = 1,
+                   cv.folds = 0, keep.data = TRUE, verbose = FALSE)
+    T2_pred = predict(gbm_fiT2, newdata = df_test[, -2], n.trees = 100)
+    df_gbm$T2[T2_bad] = T2_pred
+    
+    res_gbm = cor.test(df_gbm$T1, df_gbm$T2)
+    res1$r_gbm[i] = res_gbm$estimate
   }
   
   res1
@@ -464,29 +604,37 @@ res = foreach(i = seq_len(iter_num), .combine = rbind, .verbose = TRUE, .package
 
 stopCluster(cl)
 
-write_csv(data.frame(res), "cca_vs_mice_uncorr.csv")
+write_csv(data.frame(res), "cca_vs_impute_uncorr.csv")
 ```
 
 ```{r}
-res1 = read_csv("../outputs/others/cca_vs_mice_uncorr.csv")
+res1 = read_csv("../outputs/others/cca_vs_impute_uncorr.csv")
 res1$S = factor(res1$S, levels = c("0.1", "0.05", "0.02", "0.01", "0.005"))
 
 df_fig1 = res1 %>%
   group_by(S) %>%
-  summarise(r1 = mean(r_complete, na.rm = TRUE),
-            std1 = sd(r_complete, na.rm = TRUE),
-            r2 = mean(r_impute, na.rm = TRUE),
-            std2 = sd(r_impute, na.rm = TRUE))
+  summarise(r1 = mean(r_cca, na.rm = TRUE),
+            std1 = sd(r_cca, na.rm = TRUE),
+            r2 = mean(r_mice, na.rm = TRUE),
+            std2 = sd(r_mice, na.rm = TRUE),
+            r3 = mean(r_gbm, na.rm = TRUE),
+            std3 = sd(r_gbm, na.rm = TRUE))
 
 df_fig1 = df_fig1 %>%
-  select(-contains("2")) %>%
+  select(-contains(c("2", "3"))) %>%
   rename(r = r1, std = std1) %>%
   mutate(type = "CCA") %>%
   bind_rows(
     df_fig1 %>%
-      select(-contains("1")) %>%
+      select(-contains(c("1", "3"))) %>%
       rename(r = r2, std = std2) %>%
       mutate(type = "MICE")
+  ) %>%
+  bind_rows(
+    df_fig1 %>%
+      select(-contains(c("1", "2"))) %>%
+      rename(r = r3, std = std3) %>%
+      mutate(type = "GBM")
   ) %>%
   mutate_if(is.numeric, function(x) round(x, 3))
 
@@ -510,24 +658,28 @@ datatable(df_fig1)
 ```{r, eval=FALSE}
 iter_num = 100
 n = 100
-abn_mean = c(200, 200)
+d = 50
+abn_mean = c(200, 1000, 10000)
 dispersion = 2
 
 cl = makeCluster(5)
 registerDoParallel(cl)
 
-res = foreach(i = seq_len(iter_num), .combine = rbind, .verbose = TRUE, .packages = c("mice")) %dorng% {
-  set.seed(i)
+res = foreach(iter = seq_len(iter_num), .combine = rbind, .verbose = TRUE, .packages = c("mice", "gbm")) %dorng% {
+  set.seed(iter)
   
   template_var = sapply(abn_mean, function(x) 
     log((x + dispersion * x^2)/x^2 + 1))
   template_mean = log(abn_mean) - template_var/2
-  mu = template_mean
+  mu = c(template_mean[1], template_mean[1],
+         sample(template_mean, d - 2, replace = TRUE))
   std = rep(NA, length(mu))
   for (i in seq_along(template_mean)) {
     std[mu == template_mean[i]] = sqrt(template_var[i])
   }
-  R = matrix(c(1, 0.8, 0.8, 1), nrow = 2)
+  R = diag(1, nrow = d)
+  R[1, 2] = 0.8
+  R[2, 1] = 0.8
   Sigma = cor2cov(R = R, std = std)
   
   a = t(MASS::mvrnorm(n = n, mu = mu, Sigma = Sigma))
@@ -535,7 +687,7 @@ res = foreach(i = seq_len(iter_num), .combine = rbind, .verbose = TRUE, .package
   
   S_list = c(0.1, 0.05, 0.02, 0.01, 0.005)
   res2 = data.frame(S = S_list, zero_prop = NA, 
-                    r_complete = NA, r_impute = NA)
+                    r_cca = NA, r_mice = NA, r_gbm = NA)
   
   for (i in seq_along(S_list)) {
     S = S_list[i]
@@ -544,16 +696,45 @@ res = foreach(i = seq_len(iter_num), .combine = rbind, .verbose = TRUE, .package
     
     o = log(O); o[is.infinite(o)] = NA
     df = data.frame(t(o))
-    colnames(df) = c("o1", "o2")
+    colnames(df) = paste0("T", seq_len(d))
     
-    df_impute = mice(df, m = 1, maxit = 50, meth = "pmm", seed = 123, print = FALSE)
-    df_fill = complete(df_impute, 1)
+    # CCA
+    res_cca = cor.test(df$T1, df$T2)
+    res2$r_cca[i] = res_cca$estimate
     
-    res_complete = cor.test(df$o1, df$o2)
-    res2$r_complete[i] = res_complete$estimate
+    # Mice
+    df_mice = mice(df[, c("T1", "T2")], m = 1, maxit = 50, 
+                   meth = "pmm", seed = 123, print = FALSE)
+    df_fill = complete(df_mice, 1)
+    res_mice = cor.test(df_fill$T1, df_fill$T2)
+    res2$r_mice[i] = res_mice$estimate
     
-    res_impute = cor.test(df_fill$o1, df_fill$o2)
-    res2$r_impute[i] = res_impute$estimate
+    # GBM
+    df_gbm = df
+    T1_good = which(!is.na(df_gbm$T1))
+    T1_bad = which(is.na(df_gbm$T1))
+    df_train = df_gbm[T1_good, ]
+    df_test = df_gbm[T1_bad, ]
+    gbm_fit1 = gbm(T1 ~ ., data = df_train, distribution="gaussian",
+                   n.trees = 100, shrinkage = 0.1, interaction.depth = 1, 
+                   bag.fraction = 0.5, train.fraction = 1, n.minobsinnode = 1,
+                   cv.folds = 0, keep.data = TRUE, verbose = FALSE)
+    T1_pred = predict(gbm_fit1, newdata = df_test[, -1], n.trees = 100)
+    df_gbm$T1[T1_bad] = T1_pred
+    
+    T2_good = which(!is.na(df_gbm$T2))
+    T2_bad = which(is.na(df_gbm$T2))
+    df_train = df_gbm[T2_good, ]
+    df_test = df_gbm[T2_bad, ]
+    gbm_fiT2 = gbm(T2 ~ ., data = df_train, distribution = "gaussian",
+                   n.trees = 100, shrinkage = 0.1, interaction.depth = 1, 
+                   bag.fraction = 0.5, train.fraction = 1, n.minobsinnode = 1,
+                   cv.folds = 0, keep.data = TRUE, verbose = FALSE)
+    T2_pred = predict(gbm_fiT2, newdata = df_test[, -2], n.trees = 100)
+    df_gbm$T2[T2_bad] = T2_pred
+    
+    res_gbm = cor.test(df_gbm$T1, df_gbm$T2)
+    res2$r_gbm[i] = res_gbm$estimate
   }
   
   res2
@@ -561,29 +742,37 @@ res = foreach(i = seq_len(iter_num), .combine = rbind, .verbose = TRUE, .package
 
 stopCluster(cl)
 
-write_csv(data.frame(res), "cca_vs_mice_corr.csv")
+write_csv(data.frame(res), "cca_vs_impute_corr.csv")
 ```
 
 ```{r}
-res2 = read_csv("../outputs/others/cca_vs_mice_corr.csv")
+res2 = read_csv("../outputs/others/cca_vs_impute_corr.csv")
 res2$S = factor(res2$S, levels = c("0.1", "0.05", "0.02", "0.01", "0.005"))
 
 df_fig2 = res2 %>%
   group_by(S) %>%
-  summarise(r1 = mean(r_complete, na.rm = TRUE),
-            std1 = sd(r_complete, na.rm = TRUE),
-            r2 = mean(r_impute, na.rm = TRUE),
-            std2 = sd(r_impute, na.rm = TRUE))
+  summarise(r1 = mean(r_cca, na.rm = TRUE),
+            std1 = sd(r_cca, na.rm = TRUE),
+            r2 = mean(r_mice, na.rm = TRUE),
+            std2 = sd(r_mice, na.rm = TRUE),
+            r3 = mean(r_gbm, na.rm = TRUE),
+            std3 = sd(r_gbm, na.rm = TRUE))
 
 df_fig2 = df_fig2 %>%
-  select(-contains("2")) %>%
+  select(-contains(c("2", "3"))) %>%
   rename(r = r1, std = std1) %>%
   mutate(type = "CCA") %>%
   bind_rows(
     df_fig2 %>%
-      select(-contains("1")) %>%
+      select(-contains(c("1", "3"))) %>%
       rename(r = r2, std = std2) %>%
       mutate(type = "MICE")
+  ) %>%
+  bind_rows(
+    df_fig2 %>%
+      select(-contains(c("1", "2"))) %>%
+      rename(r = r3, std = std3) %>%
+      mutate(type = "GBM")
   ) %>%
   mutate_if(is.numeric, function(x) round(x, 3))
 
@@ -595,7 +784,7 @@ p_impute2 = df_fig2 %>%
                 position = position_dodge(.9)) +
   geom_hline(yintercept = 0.8, linetype = "dashed") +
   labs(x = "Sampling fraction", y = "Correlation estimate", 
-       title = "Bias of Estimating Nonzero Correlation Coefficients") +
+       title = "Bias of Estimating Zero Correlation Coefficients") +
   scale_fill_npg(name = NULL) +
   theme_bw() +
   theme(plot.title = element_text(hjust = 0.5))

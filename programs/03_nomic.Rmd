@@ -17,18 +17,16 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE,
 
 library(tidyverse)
 library(microbiome)
+library(ANCOMBC)
 library(randomcoloR)
 library(ggpubr)
 library(SpiecEasi)
 library(openxlsx)
-# library(energy)
 library(robustbase)
 library(DT)
 options(DT.options = list(
   initComplete = JS("function(settings, json) {",
   "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});","}")))
-
-source("../programs/00_secom.R")
 ```
 
 ```{r helper}
@@ -217,227 +215,7 @@ saveRDS(df_sample, file = "../data/nomic/qc/qc_phylum.rds")
 saveRDS(df_sample, file = "../data/nomic/qc/qc_family.rds")
 ```
 
-# 2. Run SECOM {.tabset}
-
-## Day 30
-
-```{r, eval=FALSE}
-# Phylum level
-phyloseq1 = otu_data30
-phyloseq2 = core_phylum30
-pseqs = list(c(phyloseq1, phyloseq2))
-pseudo = 0; zero_cut = 0.9; corr_cut = 0.5; lib_cut = 0
-wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
-n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5
-
-linear_phy_30 = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
-                             wins_quant, method, soft, thresh_len, n_cv, 
-                             seed, thresh_hard, max_p, n_cl)
-
-R = 1000; max_p = 0.005
-dist_phy_30 = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
-                         wins_quant, R, seed, max_p, n_cl)
-
-# Family level
-phyloseq1 = otu_data30
-phyloseq2 = core_family30
-pseqs = list(c(phyloseq1, phyloseq2))
-pseudo = 0; zero_cut = 0.9; corr_cut = 0.5; lib_cut = 0
-wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
-n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5
-
-linear_fam_30 = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
-                             wins_quant, method, soft, thresh_len, n_cv, 
-                             seed, thresh_hard, max_p, n_cl)
-
-max_p = 0.005
-dist_fam_30 = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
-                         wins_quant, seed, max_p, n_cl)
-
-# Get bias corrected abundances
-# bias
-s_30 = linear_phy_30$s_diff_hat
-
-# Raw abundances
-raw_phylum30 = abundances(phylum_data30)
-raw_phylum30 = raw_phylum30[, names(s_30)]
-raw_family30 = abundances(family_data30)
-raw_family30 = raw_family30[, names(s_30)]
-
-# Corrected abundances
-o = log(raw_phylum30)
-o[is.infinite(o)] = NA
-d = nrow(o)
-y_hat_phylum_30 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_30))
-
-o = log(raw_family30)
-o[is.infinite(o)] = NA
-d = nrow(o)
-y_hat_family_30 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_30))
-```
-
-## Day 120
-
-```{r, eval=FALSE}
-# Phylum level
-phyloseq1 = otu_data120
-phyloseq2 = core_phylum120
-pseqs = list(c(phyloseq1, phyloseq2))
-pseudo = 0; zero_cut = 0.9; corr_cut = 0.5; lib_cut = 0
-wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
-n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5
-
-linear_phy_120 = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
-                             wins_quant, method, soft, thresh_len, n_cv, 
-                             seed, thresh_hard, max_p, n_cl)
-
-R = 1000; max_p = 0.005
-dist_phy_120 = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
-                         wins_quant, R, seed, max_p, n_cl)
-
-# Family level
-phyloseq1 = otu_data120
-phyloseq2 = core_family120
-pseqs = list(c(phyloseq1, phyloseq2))
-pseudo = 0; zero_cut = 0.9; corr_cut = 0.5; lib_cut = 0
-wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
-n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5
-
-linear_fam_120 = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
-                             wins_quant, method, soft, thresh_len, n_cv, 
-                             seed, thresh_hard, max_p, n_cl)
-
-max_p = 0.005
-dist_fam_120 = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
-                         wins_quant, seed, max_p, n_cl)
-
-# Get bias corrected abundances
-# bias
-s_120 = linear_phy_120$s_diff_hat
-
-# Raw abundances
-raw_phylum120 = abundances(phylum_data120)
-raw_phylum120 = raw_phylum120[, names(s_120)]
-raw_family120 = abundances(family_data120)
-raw_family120 = raw_family120[, names(s_120)]
-
-# Corrected abundances
-o = log(raw_phylum120)
-o[is.infinite(o)] = NA
-d = nrow(o)
-y_hat_phylum_120 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_120))
-
-o = log(raw_family120)
-o[is.infinite(o)] = NA
-d = nrow(o)
-y_hat_family_120 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_120))
-```
-
-## Day 365
-
-```{r, eval=FALSE}
-# Phylum level
-phyloseq1 = otu_data365
-phyloseq2 = core_phylum365
-pseqs = list(c(phyloseq1, phyloseq2))
-pseudo = 0; zero_cut = 0.9; corr_cut = 0.5; lib_cut = 0
-wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
-n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5
-
-linear_phy_365 = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
-                             wins_quant, method, soft, thresh_len, n_cv, 
-                             seed, thresh_hard, max_p, n_cl)
-
-R = 1000; max_p = 0.005
-dist_phy_365 = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
-                         wins_quant, R, seed, max_p, n_cl)
-
-# Family level
-phyloseq1 = otu_data365
-phyloseq2 = core_family365
-pseqs = list(c(phyloseq1, phyloseq2))
-pseudo = 0; zero_cut = 0.9; corr_cut = 0.5; lib_cut = 0
-wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
-n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.005; n_cl = 5
-
-linear_fam_365 = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
-                             wins_quant, method, soft, thresh_len, n_cv, 
-                             seed, thresh_hard, max_p, n_cl)
-
-max_p = 0.005
-dist_fam_365 = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
-                         wins_quant, seed, max_p, n_cl)
-
-# Get bias corrected abundances
-# bias
-s_365 = linear_phy_365$s_diff_hat
-
-# Raw abundances
-raw_phylum365 = abundances(phylum_data365)
-raw_phylum365 = raw_phylum365[, names(s_365)]
-raw_family365 = abundances(family_data365)
-raw_family365 = raw_family365[, names(s_365)]
-
-# Corrected abundances
-o = log(raw_phylum365)
-o[is.infinite(o)] = NA
-d = nrow(o)
-y_hat_phylum_365 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_365))
-
-o = log(raw_family365)
-o[is.infinite(o)] = NA
-d = nrow(o)
-y_hat_family_365 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_365))
-```
-
-## Outputs
-
-```{r, eval=FALSE}
-saveRDS(linear_phy_30, file = "../data/nomic/phylum/linear_phy_30.rds")
-saveRDS(dist_phy_30, file = "../data/nomic/phylum/dist_phy_30.rds")
-saveRDS(linear_phy_120, file = "../data/nomic/phylum/linear_phy_120.rds")
-saveRDS(dist_phy_120, file = "../data/nomic/phylum/dist_phy_120.rds")
-saveRDS(linear_phy_365, file = "../data/nomic/phylum/linear_phy_365.rds")
-saveRDS(dist_phy_365, file = "../data/nomic/phylum/dist_phy_365.rds")
-
-saveRDS(linear_fam_30, file = "../data/nomic/familylinear_fam_30.rds")
-saveRDS(dist_fam_30, file = "../data/nomic/familydist_fam_30.rds")
-saveRDS(linear_fam_120, file = "../data/nomic/familylinear_fam_120.rds")
-saveRDS(dist_fam_120, file = "../data/nomic/familydist_fam_120.rds")
-saveRDS(linear_fam_365, file = "../data/nomic/familylinear_fam_365.rds")
-saveRDS(dist_fam_365, file = "../data/nomic/familydist_fam_365.rds")
-
-y_hat_phylum = list(day30 = y_hat_phylum_30,
-                    day120 = y_hat_phylum_120,
-                    day365 = y_hat_phylum_365)
-
-y_hat_family = list(day30 = y_hat_family_30,
-                    day120 = y_hat_family_120,
-                    day365 = y_hat_family_365)
-
-saveRDS(y_hat_phylum, file = "outputs/y_hat_phylum.rds")
-saveRDS(y_hat_family, file = "outputs/y_hat_family.rds")
-```
-
-# 3. Run Sparcc
-
-```{r, eval=FALSE}
-set.seed(123)
-R_hat_sparcc30 = sparcc(t(abundances(family_data30)))$Cor
-dimnames(R_hat_sparcc30) = list(taxa_names(family_data30), taxa_names(family_data30))
-
-R_hat_sparcc120 = sparcc(t(abundances(family_data120)))$Cor
-dimnames(R_hat_sparcc120) = list(taxa_names(family_data120), taxa_names(family_data120))
-
-R_hat_sparcc365 = sparcc(t(abundances(family_data365)))$Cor
-dimnames(R_hat_sparcc365) = list(taxa_names(family_data365), taxa_names(family_data365))
-
-sparcc_obj = list(day30 = R_hat_sparcc30, day120 = R_hat_sparcc120, day365 = R_hat_sparcc365)
-
-saveRDS(sparcc_obj, file = "../data/nomic/sparcc/sparcc_obj.rds")
-```
-
-# 4. Data summary {.tabset}
+# 2. Data summary {.tabset}
 
 ## Sample size
 
@@ -470,224 +248,217 @@ colnames(qc_family) = c("Family", "Day 30", "Day 120", "Day 365")
 datatable(qc_family)
 ```
 
-# 5. SECOM results: phylum level
+# 3. SECOM results: phylum level
 
-## 5.1 Data import
+## Run SECOM
 
-```{r}
-# Linear relationships
-phylum_linear_time_30 = read_rds("../data/nomic/phylum/linear_phy_30.rds")
-phylum_linear_time_120 = read_rds("../data/nomic/phylum/linear_phy_120.rds")
-phylum_linear_time_365 = read_rds("../data/nomic/phylum/linear_phy_365.rds")
-corr_phylum_linear_time_30 = phylum_linear_time_30$corr
-corr_phylum_linear_time_120 = phylum_linear_time_120$corr
-corr_phylum_linear_time_365 = phylum_linear_time_365$corr
-p_phylum_linear_time_30 = phylum_linear_time_30$corr_p
-p_phylum_linear_time_120 = phylum_linear_time_120$corr_p
-p_phylum_linear_time_365 = phylum_linear_time_365$corr_p
-cooccur_phylum_30 = phylum_linear_time_30$mat_cooccur
-cooccur_phylum_120 = phylum_linear_time_120$mat_cooccur
-cooccur_phylum_365 = phylum_linear_time_365$mat_cooccur
+```{r, eval=FALSE}
+pseqs = list(data1 = c(otu_data30, core_phylum30),
+             data2 = c(otu_data120, core_phylum120),
+             data3 = c(otu_data365, core_phylum365))
+pseudo = 0; prv_cut = 0.1; lib_cut = 0; corr_cut = 0.5
+wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
+n_cv = 10; thresh_hard = 0; max_p_linear = 0.1; n_cl = 2
 
-# Filter by p-values
-alpha = 0.1
-corr_phylum_linear_time_30[p_phylum_linear_time_30 >= alpha] = 0
-corr_phylum_linear_time_120[p_phylum_linear_time_120 >= alpha] = 0
-corr_phylum_linear_time_365[p_phylum_linear_time_365 >= alpha] = 0
+set.seed(123)
+res_linear = secom_linear(pseqs, pseudo, prv_cut, lib_cut, corr_cut, 
+                          wins_quant, method, soft, thresh_len, n_cv, 
+                          thresh_hard, max_p_linear, n_cl)
 
-# Filter by correlation coefficients
-th = 0.1
-corr_phylum_linear_time_30[abs(corr_phylum_linear_time_30) < th] = 0
-corr_phylum_linear_time_120[abs(corr_phylum_linear_time_120) < th] = 0
-corr_phylum_linear_time_365[abs(corr_phylum_linear_time_365) < th] = 0
+R = 1000; max_p_dist = 0.1
+set.seed(123)
+res_dist = secom_dist(pseqs, pseudo, prv_cut, lib_cut, corr_cut, 
+                      wins_quant, R, thresh_hard, max_p_dist, n_cl)
 
-# Filter by co-occurrence
-overlap = 10
-corr_phylum_linear_time_30[cooccur_phylum_30 < overlap] = 0
-corr_phylum_linear_time_120[cooccur_phylum_120 < overlap] = 0
-corr_phylum_linear_time_365[cooccur_phylum_365 < overlap] = 0
-
-# Sort row and columns
-corr_phylum_linear_time_30 = corr_phylum_linear_time_30[sort(rownames(corr_phylum_linear_time_30)),
-                                                        sort(colnames(corr_phylum_linear_time_30))]
-corr_phylum_linear_time_120 = corr_phylum_linear_time_120[sort(rownames(corr_phylum_linear_time_120)),
-                                                          sort(colnames(corr_phylum_linear_time_120))]
-corr_phylum_linear_time_365 = corr_phylum_linear_time_365[sort(rownames(corr_phylum_linear_time_365)),
-                                                          sort(colnames(corr_phylum_linear_time_365))]
-
-df_phylum_linear = data.frame(get_upper_tri(corr_phylum_linear_time_30)) %>%
-  rownames_to_column("var1") %>%
-  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
-  mutate(day = "Day 30") %>%
-  bind_rows(
-    data.frame(get_upper_tri(corr_phylum_linear_time_120)) %>%
-    rownames_to_column("var1") %>%
-    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
-    mutate(day = "Day 120")
-  ) %>%
-  bind_rows(
-    data.frame(get_upper_tri(corr_phylum_linear_time_365)) %>%
-    rownames_to_column("var1") %>%
-    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
-    mutate(day = "Day 365")
-  ) %>%
-  filter(!is.na(value)) %>%
-  mutate(value = round(value, 2),
-         metric = "Pearson")
-
-# Distance relationships
-phylum_dist_time_30 = read_rds("../data/nomic/phylum/dist_phy_30.rds")
-phylum_dist_time_120 = read_rds("../data/nomic/phylum/dist_phy_120.rds")
-phylum_dist_time_365 = read_rds("../data/nomic/phylum/dist_phy_365.rds")
-corr_phylum_dist_time_30 = phylum_dist_time_30$dcorr
-corr_phylum_dist_time_120 = phylum_dist_time_120$dcorr
-corr_phylum_dist_time_365 = phylum_dist_time_365$dcorr
-p_phylum_dist_time_30 = phylum_dist_time_30$dcorr_p
-p_phylum_dist_time_120 = phylum_dist_time_120$dcorr_p
-p_phylum_dist_time_365 = phylum_dist_time_365$dcorr_p
-
-# Filter by p-values
-alpha = 0.1
-corr_phylum_dist_time_30[p_phylum_dist_time_30 >= alpha] = 0
-corr_phylum_dist_time_120[p_phylum_dist_time_120 >= alpha] = 0
-corr_phylum_dist_time_365[p_phylum_dist_time_365 >= alpha] = 0
-
-# Filter by correlation coefficients
-th = 0.1
-corr_phylum_dist_time_30[abs(corr_phylum_dist_time_30) < th] = 0
-corr_phylum_dist_time_120[abs(corr_phylum_dist_time_120) < th] = 0
-corr_phylum_dist_time_365[abs(corr_phylum_dist_time_365) < th] = 0
-
-# Filter by co-occurrence
-overlap = 10
-corr_phylum_dist_time_30[cooccur_phylum_30 < overlap] = 0
-corr_phylum_dist_time_120[cooccur_phylum_120 < overlap] = 0
-corr_phylum_dist_time_365[cooccur_phylum_365 < overlap] = 0
-
-# Sort row and columns
-corr_phylum_dist_time_30 = corr_phylum_dist_time_30[sort(rownames(corr_phylum_dist_time_30)),
-                                                    sort(colnames(corr_phylum_dist_time_30))]
-corr_phylum_dist_time_120 = corr_phylum_dist_time_120[sort(rownames(corr_phylum_dist_time_120)),
-                                                      sort(colnames(corr_phylum_dist_time_120))]
-corr_phylum_dist_time_365 = corr_phylum_dist_time_365[sort(rownames(corr_phylum_dist_time_365)),
-                                                      sort(colnames(corr_phylum_dist_time_365))]
-
-df_phylum_dist = data.frame(get_upper_tri(corr_phylum_dist_time_30)) %>%
-  rownames_to_column("var1") %>%
-  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
-  mutate(day = "Day 30") %>%
-  bind_rows(
-    data.frame(get_upper_tri(corr_phylum_dist_time_120)) %>%
-    rownames_to_column("var1") %>%
-    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
-    mutate(day = "Day 120")
-  ) %>%
-  bind_rows(
-    data.frame(get_upper_tri(corr_phylum_dist_time_365)) %>%
-    rownames_to_column("var1") %>%
-    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
-    mutate(day = "Day 365")
-  ) %>%
-  filter(!is.na(value)) %>%
-  mutate(value = round(value, 2),
-         metric = "Distance")
-
-# Merge datasets
-df_phylum = df_phylum_linear %>%
-  bind_rows(
-    df_phylum_dist
-  )
-phy_level = sort(union(df_phylum$var1, df_phylum$var2))
-df_phylum$var1 = factor(df_phylum$var1, levels = phy_level)
-df_phylum$var2 = factor(df_phylum$var2, levels = phy_level)
-df_phylum$day = factor(df_phylum$day, levels = c("Day 30", "Day 120", "Day 365"))
-df_phylum$metric = factor(df_phylum$metric, levels = c("Pearson", "Distance"))
-
-# Bias corrected abundances
-y_phylum_all = read_rds("../data/nomic/phylum/y_hat_phylum.rds")
-y_phylum_time_30_all = exp(y_phylum_all$day30)
-y_phylum_time_120_all = exp(y_phylum_all$day120)
-y_phylum_time_365_all = exp(y_phylum_all$day365)
-
-phylum_keep_time_30 = rownames(phylum_linear_time_30$y_hat)
-phylum_keep_time_120 = rownames(phylum_linear_time_120$y_hat)
-phylum_keep_time_365 = rownames(phylum_linear_time_365$y_hat)
-
-ind30 = which(rownames(y_phylum_time_30_all) %in% phylum_keep_time_30)
-y_phylum_time_30 = as.data.frame(y_phylum_time_30_all[ind30, ]) %>%
-  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_phylum_time_30_all[-ind30, ], na.rm = TRUE)))))
-
-ind120 = which(rownames(y_phylum_time_120_all) %in% phylum_keep_time_120)
-y_phylum_time_120 = as.data.frame(y_phylum_time_120_all[ind120, ]) %>%
-  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_phylum_time_120_all[-ind120, ], na.rm = TRUE)))))
-
-ind365 = which(rownames(y_phylum_time_365_all) %in% phylum_keep_time_365)
-y_phylum_time_365 = as.data.frame(y_phylum_time_365_all[ind365, ]) %>%
-  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_phylum_time_365_all[-ind365, ], na.rm = TRUE)))))
+saveRDS(res_linear, file = "../data/nomic/phylum/res_linear.rds")
+saveRDS(res_dist, file = "../data/nomic/phylum/res_dist.rds")
 ```
 
-## 5.2 Visualization {.tabset}
+## Get bias-corrected abundances
+
+```{r, eval=FALSE}
+# Day 30
+# Bias
+s_30 = res_linear$s_diff_hat$data1
+
+# Raw abundances
+raw_30 = abundances(phylum_data30)
+raw_30 = raw_30[, names(s_30)]
+
+# Corrected abundances
+o = log(raw_30)
+o[is.infinite(o)] = NA
+d = nrow(o)
+y_hat_30 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_30))
+y_hat_30 = exp(y_hat_30)
+
+# Day 120
+# Bias
+s_120 = res_linear$s_diff_hat$data2
+
+# Raw abundances
+raw_120 = abundances(phylum_data120)
+raw_120 = raw_120[, names(s_120)]
+
+# Corrected abundances
+o = log(raw_120)
+o[is.infinite(o)] = NA
+d = nrow(o)
+y_hat_120 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_120))
+y_hat_120 = exp(y_hat_120)
+
+# Day 365
+# Bias
+s_365 = res_linear$s_diff_hat$data3
+
+# Raw abundances
+raw_365 = abundances(phylum_data365)
+raw_365 = raw_365[, names(s_365)]
+
+# Corrected abundances
+o = log(raw_365)
+o[is.infinite(o)] = NA
+d = nrow(o)
+y_hat_365 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_365))
+y_hat_365 = exp(y_hat_365)
+
+phylum_keep = rownames(res_linear$y_hat)
+phylum_keep_30 = phylum_keep[grepl("data1", phylum_keep)]
+phylum_keep_30 = sort(unique(gsub("data1 - ", "", phylum_keep_30)))
+idx = which(rownames(y_hat_30) %in% phylum_keep_30)
+y_hat_30 = as.data.frame(y_hat_30[idx, ]) %>%
+  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_hat_30[-idx, ], na.rm = TRUE)))))
+
+phylum_keep_120 = phylum_keep[grepl("data2", phylum_keep)]
+phylum_keep_120 = sort(unique(gsub("data2 - ", "", phylum_keep_120)))
+idx = which(rownames(y_hat_120) %in% phylum_keep_120)
+y_hat_120 = as.data.frame(y_hat_120[idx, ]) %>%
+  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_hat_120[-idx, ], na.rm = TRUE)))))
+
+phylum_keep_365 = phylum_keep[grepl("data3", phylum_keep)]
+phylum_keep_365 = sort(unique(gsub("data3 - ", "", phylum_keep_365)))
+idx = which(rownames(y_hat_365) %in% phylum_keep_365)
+y_hat_365 = as.data.frame(y_hat_365[idx, ]) %>%
+  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_hat_365[-idx, ], na.rm = TRUE)))))
+
+y_hat = y_hat_30 %>%
+  rownames_to_column("phylum") %>%
+  mutate(day = "30") %>%
+  select(phylum, day, everything()) %>%
+  bind_rows(
+    y_hat_120 %>%
+      rownames_to_column("phylum") %>%
+      mutate(day = "120") %>%
+      select(phylum, day, everything())
+  ) %>%
+  bind_rows(
+    y_hat_365 %>%
+      rownames_to_column("phylum") %>%
+      mutate(day = "365") %>%
+      select(phylum, day, everything())
+  )
+saveRDS(y_hat, file = "../data/nomic/phylum/y_hat.rds")
+```
+
+## Visualization {.tabset}
 
 ### Correlation coefficients
 
-```{r, fig.height=10, fig.width=13}
-p_phylum_corr = df_phylum %>%
+```{r, fig.height=18, fig.width=16}
+res_linear = read_rds("../data/nomic/phylum/res_linear.rds")
+res_dist = read_rds("../data/nomic/phylum/res_dist.rds")
+
+# Data organization
+# Linear relationships
+corr_linear = res_linear$corr_fl
+cooccur_linear = res_linear$mat_cooccur
+
+# Filter by co-occurrence
+overlap = 10
+corr_linear[cooccur_linear < overlap] = 0
+
+df_linear = data.frame(get_upper_tri(corr_linear)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2),
+         metric = "Pearson")
+
+# Distance relationships
+corr_dist = res_dist$dcorr_fl
+cooccur_dist = res_dist$mat_cooccur
+
+# Filter by co-occurrence
+overlap = 10
+corr_dist[cooccur_dist < overlap] = 0
+
+df_dist = data.frame(get_upper_tri(corr_dist)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2),
+         metric = "Distance")
+
+# Merge datasets
+df_corr = df_linear %>%
+  bind_rows(
+    df_dist
+  ) 
+phylum_level = sort(union(df_corr$var1, df_corr$var2))
+phylum_label = sapply(phylum_level, function(x) strsplit(x, " - ")[[1]][2])
+txt_color = case_when(grepl("data1", phylum_level) ~ "#1B9E77",
+                      grepl("data2", phylum_level) ~ "#D95F02",
+                      TRUE ~ "#7570B3")
+df_corr$var1 = factor(df_corr$var1, levels = phylum_level)
+df_corr$var2 = factor(df_corr$var2, levels = phylum_level)
+df_corr$metric = factor(df_corr$metric, levels = c("Pearson", "Distance"))
+
+p_corr = df_corr %>%
   ggplot(aes(var2, var1, fill = value)) +
   geom_tile(color = "black") +
   scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
                        midpoint = 0, limit = c(-1,1), space = "Lab", 
                        name = NULL) +
-  scale_x_discrete(drop = FALSE) +
-  scale_y_discrete(drop = FALSE) +
-  facet_grid(metric~day) +
-  geom_text(aes(var2, var1, label = value), color = "black", size = 5) +
+  scale_x_discrete(drop = FALSE, labels = phylum_label) +
+  scale_y_discrete(drop = FALSE, labels = phylum_label) +
+  facet_grid(rows = vars(metric)) +
+  geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
   labs(x = NULL, y = NULL, title = NULL) +
-  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
-                               title.position = "top", title.hjust = 0.5)) +
+  guides(fill = guide_colorbar(barwidth = 1, barheight = 7, 
+                               title.position = "right")) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),
-        axis.text.y = element_text(size = 12),
+  geom_vline(xintercept = c(4.5, 9.5), color = "blue", linetype = "dashed") +
+  geom_hline(yintercept = c(4.5, 9.5), color = "blue", linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
+                                   face = "italic", color = txt_color),
+        axis.text.y = element_text(size = 12, face = "italic", color = txt_color),
         strip.text.x = element_text(size = 14),
         strip.text.y = element_text(size = 14),
         legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 15),
         panel.grid.major = element_blank(),
-        axis.ticks = element_blank(),
-        legend.position = "top") +
+        axis.ticks = element_blank()) +
   coord_fixed()
-
-p_phylum_corr
+p_corr
 ```
 
 ### Mean abundances
 
 ```{r, fig.height=5, fig.width=10}
-df_abn_phylum = y_phylum_time_30 %>%
-  mutate_if(is.numeric, ~replace_na(., 0)) %>%
-  mutate(ave = rowMeans(across(everything())),
-         day = "30") %>%
-  select(ave, day) %>%
-  rownames_to_column("phylum") %>%
-  bind_rows(
-    y_phylum_time_120 %>%
-      mutate_if(is.numeric, ~replace_na(., 0)) %>%
-      mutate(ave = rowMeans(across(everything())),
-             day = "120") %>%
-      select(ave, day) %>%
-      rownames_to_column("phylum")
-  ) %>%
-  bind_rows(
-    y_phylum_time_365 %>%
-      mutate_if(is.numeric, ~replace_na(., 0)) %>%
-      mutate(ave = rowMeans(across(everything())),
-             day = "365") %>%
-      select(ave, day) %>%
-      rownames_to_column("phylum")
-  ) %>%
-  filter(phylum != "Others")
-df_abn_phylum$phylum = factor(df_abn_phylum$phylum, levels = phy_level)
-df_abn_phylum$day = factor(df_abn_phylum$day, levels = c("30", "120", "365"))
+y_hat = read_rds("../data/nomic/phylum/y_hat.rds")
 
-p_phylum_abn = df_abn_phylum %>%
+df_abn = y_hat %>%
+  mutate_if(is.numeric, ~replace_na(., 0)) %>%
+  mutate(ave = rowMeans(across(where(is.numeric)))) %>%
+  select(phylum, day, ave) %>%
+  filter(phylum != "Others")
+
+df_abn$phylum = factor(df_abn$phylum)
+df_abn$day = factor(df_abn$day, levels = c("30", "120", "365"))
+
+p_abn = df_abn %>%
   ggplot(aes(x = day, y = ave, fill = phylum)) +
   geom_bar(position = "dodge", stat = "identity") +
   labs(x = "Day", y = "Abundance") +
@@ -695,614 +466,499 @@ p_phylum_abn = df_abn_phylum %>%
   scale_x_discrete(drop = FALSE) +
   facet_wrap(.~phylum, nrow = 2, scales = "free") +
   theme_bw()
-p_phylum_abn
+p_abn
 ```
 
 ### Mean relative abundance
 
 ```{r}
-df_rel_phylum = y_phylum_time_30 %>%
+y_hat = y_hat %>%
   mutate_if(is.numeric, ~replace_na(., 0)) %>%
-  mutate(total = rowSums(across(everything())),
-         day = "30",
-         prop = total/sum(total)) %>%
-  select(prop, day) %>%
-  rownames_to_column("phylum") %>%
+  mutate(total = rowSums(across(where(is.numeric))))
+
+df_rel = y_hat %>%
+  filter(day == "30") %>%
+  mutate(prop = total/sum(total)) %>%
+  select(phylum, day, prop) %>%
   bind_rows(
-    y_phylum_time_120 %>%
-      mutate_if(is.numeric, ~replace_na(., 0)) %>%
-      mutate(total = rowSums(across(everything())),
-             day = "120",
-             prop = total/sum(total)) %>%
-      select(prop, day) %>%
-      rownames_to_column("phylum")
+    y_hat %>%
+      filter(day == "120") %>%
+      mutate(prop = total/sum(total)) %>%
+      select(phylum, day, prop)
   ) %>%
   bind_rows(
-    y_phylum_time_365 %>%
-      mutate_if(is.numeric, ~replace_na(., 0)) %>%
-      mutate(total = rowSums(across(everything())),
-             day = "365",
-             prop = total/sum(total)) %>%
-      select(prop, day) %>%
-      rownames_to_column("phylum")
+    y_hat %>%
+      filter(day == "365") %>%
+      mutate(prop = total/sum(total)) %>%
+      select(phylum, day, prop)
   )
 
-df_rel_phylum$phylum = factor(df_rel_phylum$phylum, levels = c(phy_level, "Others"))
-df_rel_phylum$day = factor(df_rel_phylum$day, levels = c("30", "120", "365"))
-p_phylum_rel = df_rel_phylum %>%
+df_rel$phylum = factor(df_rel$phylum)
+df_rel$phylum = forcats::fct_relevel(df_rel$phylum, "Others", after = Inf)
+df_rel$day = factor(df_rel$day, levels = c("30", "120", "365"))
+p_rel = df_rel %>%
   ggplot(aes(x = day, y = prop, fill = phylum)) +
   geom_bar(position = "stack", stat = "identity") +
   labs(x = "Day", y = "Relative Abundance") +
   scale_fill_brewer(name = NULL, palette = "Set1") +
   theme_bw()
-p_phylum_rel
+p_rel
 
-df_rel_phylum = df_rel_phylum %>%
+df_rel = df_rel %>%
   mutate(prop = round(prop, 2)) %>%
   pivot_wider(names_from = "day", values_from = "prop") %>%
   arrange(phylum)
-datatable(df_rel_phylum)
+datatable(df_rel)
 
 # Combine abundance and relative abundance plots
-p_phylum_abn = p_phylum_abn + 
+p_abn = p_abn + 
   theme(legend.position = "none") +
   labs(x = NULL)
-p_phylum_combine = ggarrange(p_phylum_abn, p_phylum_rel, nrow = 2,
-                             heights = c(1, 1.5), labels = c("a", "b"))
+p_combine = ggarrange(p_abn, p_rel, nrow = 2,
+                      heights = c(1, 1.5), labels = c("a", "b"))
 
-ggsave(plot = p_phylum_combine, "../images/supp/supp_nomic_count_phylum.pdf", 
+ggsave(plot = p_combine, "../images/supp/supp_nomic_count_phylum.pdf", 
        height = 8, width = 10)   
-ggsave(plot = p_phylum_combine, "../images/supp/supp_nomic_count_phylum.jpeg", 
+ggsave(plot = p_combine, "../images/supp/supp_nomic_count_phylum.jpeg", 
        height = 8, width = 10, dpi = 300)
 ```
 
-# 6. SECOM results: family level
+# 4. SECOM results: family level
 
-## 6.1 Data import
+## Run SECOM
 
-```{r}
-# Linear relationships
-family_linear_time_30 = read_rds("../data/nomic/family/linear_fam_30.rds")
-family_linear_time_120 = read_rds("../data/nomic/family/linear_fam_120.rds")
-family_linear_time_365 = read_rds("../data/nomic/family/linear_fam_365.rds")
-corr_family_linear_time_30 = family_linear_time_30$corr
-corr_family_linear_time_120 = family_linear_time_120$corr
-corr_family_linear_time_365 = family_linear_time_365$corr
-p_family_linear_time_30 = family_linear_time_30$corr_p
-p_family_linear_time_120 = family_linear_time_120$corr_p
-p_family_linear_time_365 = family_linear_time_365$corr_p
-cooccur_family_30 = family_linear_time_30$mat_cooccur
-cooccur_family_120 = family_linear_time_120$mat_cooccur
-cooccur_family_365 = family_linear_time_365$mat_cooccur
+```{r, eval=FALSE}
+pseqs = list(data1 = c(otu_data30, core_family30),
+             data2 = c(otu_data120, core_family120),
+             data3 = c(otu_data365, core_family365))
+pseudo = 0; prv_cut = 0.1; lib_cut = 0; corr_cut = 0.5
+wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
+n_cv = 10; thresh_hard = 0; max_p_linear = 0.1; n_cl = 2
 
-# Filter by p-values
-alpha = 0.1
-corr_family_linear_time_30[p_family_linear_time_30 >= alpha] = 0
-corr_family_linear_time_120[p_family_linear_time_120 >= alpha] = 0
-corr_family_linear_time_365[p_family_linear_time_365 >= alpha] = 0
+set.seed(123)
+res_linear = secom_linear(pseqs, pseudo, prv_cut, lib_cut, corr_cut, 
+                          wins_quant, method, soft, thresh_len, n_cv, 
+                          thresh_hard, max_p_linear, n_cl)
 
-# Filter by correlation coefficients
-th = 0.1
-corr_family_linear_time_30[abs(corr_family_linear_time_30) < th] = 0
-corr_family_linear_time_120[abs(corr_family_linear_time_120) < th] = 0
-corr_family_linear_time_365[abs(corr_family_linear_time_365) < th] = 0
+R = 1000; max_p_dist = 0.1
+set.seed(123)
+res_dist = secom_dist(pseqs, pseudo, prv_cut, lib_cut, corr_cut, 
+                      wins_quant, R, thresh_hard, max_p_dist, n_cl)
 
-# Filter by co-occurrence
-overlap = 10
-corr_family_linear_time_30[cooccur_family_30 < overlap] = 0
-corr_family_linear_time_120[cooccur_family_120 < overlap] = 0
-corr_family_linear_time_365[cooccur_family_365 < overlap] = 0
-
-# Sort row and columns
-corr_family_linear_time_30 = corr_family_linear_time_30[sort(rownames(corr_family_linear_time_30)),
-                                                        sort(colnames(corr_family_linear_time_30))]
-corr_family_linear_time_120 = corr_family_linear_time_120[sort(rownames(corr_family_linear_time_120)),
-                                                          sort(colnames(corr_family_linear_time_120))]
-corr_family_linear_time_365 = corr_family_linear_time_365[sort(rownames(corr_family_linear_time_365)),
-                                                          sort(colnames(corr_family_linear_time_365))]
-
-df_family_linear = data.frame(get_upper_tri(corr_family_linear_time_30)) %>%
-  rownames_to_column("var1") %>%
-  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
-  mutate(day = "Day 30") %>%
-  bind_rows(
-    data.frame(get_upper_tri(corr_family_linear_time_120)) %>%
-    rownames_to_column("var1") %>%
-    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
-    mutate(day = "Day 120")
-  ) %>%
-  bind_rows(
-    data.frame(get_upper_tri(corr_family_linear_time_365)) %>%
-    rownames_to_column("var1") %>%
-    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
-    mutate(day = "Day 365")
-  ) %>%
-  filter(!is.na(value)) %>%
-  mutate(value = round(value, 2),
-         metric = "Pearson")
-
-# Distance relationships
-family_dist_time_30 = read_rds("../data/nomic/family/dist_fam_30.rds")
-family_dist_time_120 = read_rds("../data/nomic/family/dist_fam_120.rds")
-family_dist_time_365 = read_rds("../data/nomic/family/dist_fam_365.rds")
-corr_family_dist_time_30 = family_dist_time_30$dcorr
-corr_family_dist_time_120 = family_dist_time_120$dcorr
-corr_family_dist_time_365 = family_dist_time_365$dcorr
-p_family_dist_time_30 = family_dist_time_30$dcorr_p
-p_family_dist_time_120 = family_dist_time_120$dcorr_p
-p_family_dist_time_365 = family_dist_time_365$dcorr_p
-
-# Filter by p-values
-alpha = 0.1
-corr_family_dist_time_30[p_family_dist_time_30 >= alpha] = 0
-corr_family_dist_time_120[p_family_dist_time_120 >= alpha] = 0
-corr_family_dist_time_365[p_family_dist_time_365 >= alpha] = 0
-
-# Filter by correlation coefficients
-th = 0.1
-corr_family_dist_time_30[abs(corr_family_dist_time_30) < th] = 0
-corr_family_dist_time_120[abs(corr_family_dist_time_120) < th] = 0
-corr_family_dist_time_365[abs(corr_family_dist_time_365) < th] = 0
-
-# Filter by co-occurrence
-overlap = 10
-corr_family_dist_time_30[cooccur_family_30 < overlap] = 0
-corr_family_dist_time_120[cooccur_family_120 < overlap] = 0
-corr_family_dist_time_365[cooccur_family_365 < overlap] = 0
-
-# Sort row and columns
-corr_family_dist_time_30 = corr_family_dist_time_30[sort(rownames(corr_family_dist_time_30)),
-                                                    sort(colnames(corr_family_dist_time_30))]
-corr_family_dist_time_120 = corr_family_dist_time_120[sort(rownames(corr_family_dist_time_120)),
-                                                      sort(colnames(corr_family_dist_time_120))]
-corr_family_dist_time_365 = corr_family_dist_time_365[sort(rownames(corr_family_dist_time_365)),
-                                                      sort(colnames(corr_family_dist_time_365))]
-
-df_family_dist = data.frame(get_upper_tri(corr_family_dist_time_30)) %>%
-  rownames_to_column("var1") %>%
-  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
-  mutate(day = "Day 30") %>%
-  bind_rows(
-    data.frame(get_upper_tri(corr_family_dist_time_120)) %>%
-    rownames_to_column("var1") %>%
-    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
-    mutate(day = "Day 120")
-  ) %>%
-  bind_rows(
-    data.frame(get_upper_tri(corr_family_dist_time_365)) %>%
-    rownames_to_column("var1") %>%
-    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
-    mutate(day = "Day 365")
-  ) %>%
-  filter(!is.na(value)) %>%
-  mutate(value = round(value, 2),
-         metric = "Distance")
-
-# Merge datasets
-df_family = df_family_linear %>%
-  bind_rows(
-    df_family_dist
-  )
-fam_level = sort(union(df_family$var1, df_family$var2))
-df_family$var1 = factor(df_family$var1, levels = fam_level)
-df_family$var2 = factor(df_family$var2, levels = fam_level)
-df_family$day = factor(df_family$day, levels = c("Day 30", "Day 120", "Day 365"))
-df_family$metric = factor(df_family$metric, levels = c("Pearson", "Distance"))
-
-# Bias corrected abundances
-y_family_all = read_rds("../data/nomic/family/y_hat_family.rds")
-y_family_time_30_all = exp(y_family_all$day30)
-y_family_time_120_all = exp(y_family_all$day120)
-y_family_time_365_all = exp(y_family_all$day365)
-
-family_keep_time_30 = rownames(family_linear_time_30$y_hat)
-family_keep_time_120 = rownames(family_linear_time_120$y_hat)
-family_keep_time_365 = rownames(family_linear_time_365$y_hat)
-
-ind30 = which(rownames(y_family_time_30_all) %in% family_keep_time_30)
-y_family_time_30 = as.data.frame(y_family_time_30_all[ind30, ]) %>%
-  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_family_time_30_all[-ind30, ], na.rm = TRUE)))))
-
-ind120 = which(rownames(y_family_time_120_all) %in% family_keep_time_120)
-y_family_time_120 = as.data.frame(y_family_time_120_all[ind120, ]) %>%
-  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_family_time_120_all[-ind120, ], na.rm = TRUE)))))
-
-ind365 = which(rownames(y_family_time_365_all) %in% family_keep_time_365)
-y_family_time_365 = as.data.frame(y_family_time_365_all[ind365, ]) %>%
-  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_family_time_365_all[-ind365, ], na.rm = TRUE)))))
+saveRDS(res_linear, file = "../data/nomic/family/res_linear.rds")
+saveRDS(res_dist, file = "../data/nomic/family/res_dist.rds")
 ```
 
-## 6.2 Visualization {.tabset}
+## Get bias-corrected abundances
+
+```{r, eval=FALSE}
+# Day 30
+# Bias
+s_30 = res_linear$s_diff_hat$data1
+
+# Raw abundances
+raw_30 = abundances(family_data30)
+raw_30 = raw_30[, names(s_30)]
+
+# Corrected abundances
+o = log(raw_30)
+o[is.infinite(o)] = NA
+d = nrow(o)
+y_hat_30 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_30))
+y_hat_30 = exp(y_hat_30)
+
+# Day 120
+# Bias
+s_120 = res_linear$s_diff_hat$data2
+
+# Raw abundances
+raw_120 = abundances(family_data120)
+raw_120 = raw_120[, names(s_120)]
+
+# Corrected abundances
+o = log(raw_120)
+o[is.infinite(o)] = NA
+d = nrow(o)
+y_hat_120 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_120))
+y_hat_120 = exp(y_hat_120)
+
+# Day 365
+# Bias
+s_365 = res_linear$s_diff_hat$data3
+
+# Raw abundances
+raw_365 = abundances(family_data365)
+raw_365 = raw_365[, names(s_365)]
+
+# Corrected abundances
+o = log(raw_365)
+o[is.infinite(o)] = NA
+d = nrow(o)
+y_hat_365 = o - rowMeans(o, na.rm = TRUE) - t(replicate(d, s_365))
+y_hat_365 = exp(y_hat_365)
+
+family_keep = rownames(res_linear$y_hat)
+family_keep_30 = family_keep[grepl("data1", family_keep)]
+family_keep_30 = sort(unique(gsub("data1 - ", "", family_keep_30)))
+idx = which(rownames(y_hat_30) %in% family_keep_30)
+y_hat_30 = as.data.frame(y_hat_30[idx, ]) %>%
+  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_hat_30[-idx, ], na.rm = TRUE)))))
+
+family_keep_120 = family_keep[grepl("data2", family_keep)]
+family_keep_120 = sort(unique(gsub("data2 - ", "", family_keep_120)))
+idx = which(rownames(y_hat_120) %in% family_keep_120)
+y_hat_120 = as.data.frame(y_hat_120[idx, ]) %>%
+  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_hat_120[-idx, ], na.rm = TRUE)))))
+
+family_keep_365 = family_keep[grepl("data3", family_keep)]
+family_keep_365 = sort(unique(gsub("data3 - ", "", family_keep_365)))
+idx = which(rownames(y_hat_365) %in% family_keep_365)
+y_hat_365 = as.data.frame(y_hat_365[idx, ]) %>%
+  bind_rows(as.data.frame(t(data.frame(Others = colSums(y_hat_365[-idx, ], na.rm = TRUE)))))
+
+y_hat = y_hat_30 %>%
+  rownames_to_column("family") %>%
+  mutate(day = "30") %>%
+  select(family, day, everything()) %>%
+  bind_rows(
+    y_hat_120 %>%
+      rownames_to_column("family") %>%
+      mutate(day = "120") %>%
+      select(family, day, everything())
+  ) %>%
+  bind_rows(
+    y_hat_365 %>%
+      rownames_to_column("family") %>%
+      mutate(day = "365") %>%
+      select(family, day, everything())
+  )
+saveRDS(y_hat, file = "../data/nomic/family/y_hat.rds")
+```
+
+## Visualization {.tabset}
 
 ### Correlation coefficients
 
-```{r, fig.height=10, fig.width=13}
-p_family_corr = df_family %>%
+```{r, fig.height=18, fig.width=16}
+res_linear = read_rds("../data/nomic/family/res_linear.rds")
+res_dist = read_rds("../data/nomic/family/res_dist.rds")
+
+# Data organization
+# Linear relationships
+corr_linear = res_linear$corr_fl
+cooccur_linear = res_linear$mat_cooccur
+
+# Filter by co-occurrence
+overlap = 10
+corr_linear[cooccur_linear < overlap] = 0
+
+df_linear = data.frame(get_upper_tri(corr_linear)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2),
+         metric = "Pearson")
+
+# Distance relationships
+corr_dist = res_dist$dcorr_fl
+cooccur_dist = res_dist$mat_cooccur
+
+# Filter by co-occurrence
+overlap = 10
+corr_dist[cooccur_dist < overlap] = 0
+
+df_dist = data.frame(get_upper_tri(corr_dist)) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(var2 = gsub("\\...", " - ", var2),
+         value = round(value, 2),
+         metric = "Distance")
+
+# Merge datasets
+df_corr = df_linear %>%
+  bind_rows(
+    df_dist
+  ) 
+family_level = sort(union(df_corr$var1, df_corr$var2))
+family_label = sapply(family_level, function(x) strsplit(x, " - ")[[1]][2])
+txt_color = case_when(grepl("data1", family_level) ~ "#1B9E77",
+                      grepl("data2", family_level) ~ "#D95F02",
+                      TRUE ~ "#7570B3")
+df_corr$var1 = factor(df_corr$var1, levels = family_level)
+df_corr$var2 = factor(df_corr$var2, levels = family_level)
+df_corr$metric = factor(df_corr$metric, levels = c("Pearson", "Distance"))
+
+p_corr = df_corr %>%
   ggplot(aes(var2, var1, fill = value)) +
   geom_tile(color = "black") +
   scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
                        midpoint = 0, limit = c(-1,1), space = "Lab", 
                        name = NULL) +
-  scale_x_discrete(drop = FALSE) +
-  scale_y_discrete(drop = FALSE) +
-  facet_grid(metric~day) +
+  scale_x_discrete(drop = FALSE, labels = family_label) +
+  scale_y_discrete(drop = FALSE, labels = family_label) +
+  facet_grid(rows = vars(metric)) +
   geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
   labs(x = NULL, y = NULL, title = NULL) +
-  guides(fill = guide_colorbar(barwidth = 7, barheight = 1, 
-                               title.position = "top", title.hjust = 0.5)) +
+  guides(fill = guide_colorbar(barwidth = 1, barheight = 7, 
+                               title.position = "right")) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, face = "italic"),
-        axis.text.y = element_text(size = 12, face = "italic"),
+  geom_vline(xintercept = c(8.5, 15.5), color = "blue", linetype = "dashed") +
+  geom_hline(yintercept = c(8.5, 15.5), color = "blue", linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
+                                   face = "italic", color = txt_color),
+        axis.text.y = element_text(size = 12, face = "italic", color = txt_color),
         strip.text.x = element_text(size = 14),
         strip.text.y = element_text(size = 14),
         legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 15),
         panel.grid.major = element_blank(),
-        axis.ticks = element_blank(),
-        legend.position = "top") +
+        axis.ticks = element_blank()) +
   coord_fixed()
-
-p_family_corr
-ggsave(plot = p_family_corr, "../images/main/nomic_corr_family.pdf", height = 10, width = 13)   
-ggsave(plot = p_family_corr, "../images/main/nomic_corr_family.jpeg", height = 10, width = 13, dpi = 300)
+p_corr
+ggsave(plot = p_corr, "../images/main/nomic_corr_family.pdf", height = 18, width = 16)   
+ggsave(plot = p_corr, "../images/main/nomic_corr_family.jpeg", height = 18, width = 16, dpi = 300)
 ```
 
 ### Mean abundances
 
 ```{r, fig.height=5, fig.width=10}
-df_abn_family = y_family_time_30 %>%
-  mutate_if(is.numeric, ~replace_na(., 0)) %>%
-  mutate(ave = rowMeans(across(everything())),
-         day = "30") %>%
-  select(ave, day) %>%
-  rownames_to_column("family") %>%
-  bind_rows(
-    y_family_time_120 %>%
-      mutate_if(is.numeric, ~replace_na(., 0)) %>%
-      mutate(ave = rowMeans(across(everything())),
-             day = "120") %>%
-      select(ave, day) %>%
-      rownames_to_column("family")
-  ) %>%
-  bind_rows(
-    y_family_time_365 %>%
-      mutate_if(is.numeric, ~replace_na(., 0)) %>%
-      mutate(ave = rowMeans(across(everything())),
-             day = "365") %>%
-      select(ave, day) %>%
-      rownames_to_column("family")
-  ) %>%
-  filter(family != "Others")
-df_abn_family$family = factor(df_abn_family$family, levels = fam_level)
-df_abn_family$day = factor(df_abn_family$day, levels = c("30", "120", "365"))
+y_hat = read_rds("../data/nomic/family/y_hat.rds")
 
-p_family_abn = df_abn_family %>%
+df_abn = y_hat %>%
+  mutate_if(is.numeric, ~replace_na(., 0)) %>%
+  mutate(ave = rowMeans(across(where(is.numeric)))) %>%
+  select(family, day, ave) %>%
+  filter(family != "Others")
+
+df_abn$family = factor(df_abn$family)
+df_abn$day = factor(df_abn$day, levels = c("30", "120", "365"))
+
+p_abn = df_abn %>%
   ggplot(aes(x = day, y = ave, fill = family)) +
   geom_bar(position = "dodge", stat = "identity") +
   labs(x = "Day", y = "Abundance") +
   scale_fill_brewer(name = NULL, palette = "Paired", drop = FALSE) +
   scale_x_discrete(drop = FALSE) +
   facet_wrap(.~family, nrow = 2, scales = "free") +
-  theme_bw() +
-  theme(legend.text = element_text(face = "italic"),
-        strip.text = element_text(face = "italic"))
-p_family_abn
+  theme_bw()
+p_abn
 ```
 
 ### Mean relative abundance
 
 ```{r}
-df_rel_family = y_family_time_30 %>%
+y_hat = y_hat %>%
   mutate_if(is.numeric, ~replace_na(., 0)) %>%
-  mutate(total = rowSums(across(everything())),
-         day = "30",
-         prop = total/sum(total)) %>%
-  select(prop, day) %>%
-  rownames_to_column("family") %>%
+  mutate(total = rowSums(across(where(is.numeric))))
+
+df_rel = y_hat %>%
+  filter(day == "30") %>%
+  mutate(prop = total/sum(total)) %>%
+  select(family, day, prop) %>%
   bind_rows(
-    y_family_time_120 %>%
-      mutate_if(is.numeric, ~replace_na(., 0)) %>%
-      mutate(total = rowSums(across(everything())),
-             day = "120",
-             prop = total/sum(total)) %>%
-      select(prop, day) %>%
-      rownames_to_column("family")
+    y_hat %>%
+      filter(day == "120") %>%
+      mutate(prop = total/sum(total)) %>%
+      select(family, day, prop)
   ) %>%
   bind_rows(
-    y_family_time_365 %>%
-      mutate_if(is.numeric, ~replace_na(., 0)) %>%
-      mutate(total = rowSums(across(everything())),
-             day = "365",
-             prop = total/sum(total)) %>%
-      select(prop, day) %>%
-      rownames_to_column("family")
+    y_hat %>%
+      filter(day == "365") %>%
+      mutate(prop = total/sum(total)) %>%
+      select(family, day, prop)
   )
 
-df_rel_family$family = factor(df_rel_family$family, levels = c(fam_level, "Others"))
-df_rel_family$day = factor(df_rel_family$day, levels = c("30", "120", "365"))
-p_family_rel = df_rel_family %>%
+df_rel$family = factor(df_rel$family)
+df_rel$family = forcats::fct_relevel(df_rel$family, "Others", after = Inf)
+df_rel$day = factor(df_rel$day, levels = c("30", "120", "365"))
+p_rel = df_rel %>%
   ggplot(aes(x = day, y = prop, fill = family)) +
   geom_bar(position = "stack", stat = "identity") +
   labs(x = "Day", y = "Relative Abundance") +
   scale_fill_brewer(name = NULL, palette = "Paired") +
-  theme_bw() +
-  theme(legend.text = element_text(face = "italic"))
-p_family_rel
+  theme_bw()
+p_rel
 
-df_rel_family = df_rel_family %>%
+df_rel = df_rel %>%
   mutate(prop = round(prop, 2)) %>%
   pivot_wider(names_from = "day", values_from = "prop") %>%
   arrange(family)
-datatable(df_rel_family)
+datatable(df_rel)
 
 # Combine abundance and relative abundance plots
-p_family_abn = p_family_abn + 
+p_abn = p_abn + 
   theme(legend.position = "none") +
   labs(x = NULL)
-p_family_combine = ggarrange(p_family_abn, p_family_rel, nrow = 2,
-                             heights = c(1, 1.5), labels = c("a", "b"))
+p_combine = ggarrange(p_abn, p_rel, nrow = 2,
+                      heights = c(1, 1.5), labels = c("a", "b"))
 
-ggsave(plot = p_family_combine, "../images/main/nomic_count_family.pdf", 
+ggsave(plot = p_combine, "../images/supp/supp_nomic_count_family.pdf", 
        height = 8, width = 10)   
-ggsave(plot = p_family_combine, "../images/main/nomic_count_family.jpeg", 
+ggsave(plot = p_combine, "../images/supp/supp_nomic_count_family.jpeg", 
        height = 8, width = 10, dpi = 300)
 ```
 
-### Scatter plots
+### Nonlinearity example
+
+**Enterobacteriaceae vs. Ruminococcaceae at day 120**
 
 ```{r}
-df_res = df_family %>%
-  filter(value != 0) %>%
-  pivot_wider(names_from = "metric", values_from = "value") %>%
-  mutate(Pearson = replace_na(Pearson, 0),
-         Distance = replace_na(Distance, 0)) %>%
-  arrange(day, var1, var2)
+df_eg = data.frame(x = res_linear$y_hat["data2 - Enterobacteriaceae", ],
+                   y = res_linear$y_hat["data2 - Ruminococcaceae", ])
+df_eg = df_eg[complete.cases(df_eg), ]
 
-y_family_list = list(day30 = family_linear_time_30$y_hat, 
-                     day120 = family_linear_time_120$y_hat,
-                     day365 = family_linear_time_365$y_hat)
-
-scatter_family_time_30 = vector(mode = "list")
-scatter_family_time_120 = vector(mode = "list")
-scatter_family_time_365 = vector(mode = "list")
-ind1 = 1; ind2 = 1; ind3 = 1
-for (i in seq_along(df_res$var1)) {
-  day = as.character(df_res$day[i])
-  var1 = as.character(df_res$var1[i])
-  var2 = as.character(df_res$var2[i])
-  
-  if (day == "Day 30") {
-    df_y = y_family_list$day30
-    df_fig = data.frame(y = df_y[var1, ], x = df_y[var2, ])
-    
-    fig_scatter = df_fig %>%
-      ggplot(aes(x = x, y = y)) +
-      labs(x = var2, y = var1) +
-      geom_point() +
-      geom_smooth(method = "loess", formula = "y ~ x", se = FALSE, color = "red") +
-      geom_smooth(method = "lm", formula = "y ~ x", se = FALSE, color = "blue", linetype = "dashed") +
-      theme_bw() +
-      theme(axis.title.x = element_text(face = "italic"),
-            axis.title.y = element_text(face = "italic"))
-    scatter_family_time_30[[ind1]] = fig_scatter
-    ind1 = ind1 + 1
-  } else if (day == "Day 120") {
-    df_y = y_family_list$day120
-    df_fig = data.frame(y = df_y[var1, ], x = df_y[var2, ])
-    
-    fig_scatter = df_fig %>%
-      ggplot(aes(x = x, y = y)) +
-      labs(x = var2, y = var1) +
-      geom_point() +
-      geom_smooth(method = "loess", formula = "y ~ x", se = FALSE, color = "red") +
-      geom_smooth(method = "lm", formula = "y ~ x", se = FALSE, color = "blue", linetype = "dashed") +
-      theme_bw() +
-      theme(axis.title.x = element_text(face = "italic"),
-            axis.title.y = element_text(face = "italic"))
-    scatter_family_time_120[[ind2]] = fig_scatter
-    ind2 = ind2 + 1
-  } else {
-    df_y = y_family_list$day365
-    df_fig = data.frame(y = df_y[var1, ], x = df_y[var2, ])
-    
-    fig_scatter = df_fig %>%
-      ggplot(aes(x = x, y = y)) +
-      labs(x = var2, y = var1) +
-      geom_point() +
-      geom_smooth(method = "loess", formula = "y ~ x", se = FALSE, color = "red") +
-      geom_smooth(method = "lm", formula = "y ~ x", se = FALSE, color = "blue", linetype = "dashed") +
-      theme_bw() +
-      theme(axis.title.x = element_text(face = "italic"),
-            axis.title.y = element_text(face = "italic"))
-    scatter_family_time_365[[ind3]] = fig_scatter
-    ind3 = ind3 + 1
-  }
-}
-
-write.xlsx(df_res, "../outputs/nomic/secom_results.xlsx", overwrite = TRUE)
-
-pair_scatter_time_30 = ggarrange(plotlist = scatter_family_time_30)
-pair_scatter_time_120 = ggarrange(plotlist = scatter_family_time_120)
-pair_scatter_time_365 = ggarrange(plotlist = scatter_family_time_365)
-
-ggsave(plot = pair_scatter_time_30, "../images/supp/supp_nomic_scatter_family_30.pdf", 
-       height = 3, width = 6)   
-ggsave(plot = pair_scatter_time_30, "../images/supp/supp_nomic_scatter_family_30.jpeg", 
-       height = 3, width = 6, dpi = 300)
-
-ggsave(plot = pair_scatter_time_120, "../images/supp/supp_nomic_scatter_family_120.pdf", 
-       height = 6, width = 6)   
-ggsave(plot = pair_scatter_time_120, "../images/supp/supp_nomic_scatter_family_120.jpeg", 
-       height = 6, width = 6, dpi = 300)
-
-ggsave(plot = pair_scatter_time_365, "../images/supp/supp_nomic_scatter_family_365.pdf", 
-       height = 8, width = 8)   
-ggsave(plot = pair_scatter_time_365, "../images/supp/supp_nomic_scatter_family_365.jpeg", 
-       height = 8, width = 8, dpi = 300)
-
-# Example of nonlinear relationship
-df_y = y_family_list$day365
-df_fig = data.frame(y = df_y["Ruminococcaceae", ], x = df_y["Staphylococcaceae", ])
-df_fig_complete = df_fig[complete.cases(df_fig), ]
-df_ann = data.frame(x = -0.5, y = 5, 
-                    pcor = round(cor.test(df_fig$x, df_fig$y, method = "pearson")$estimate, 2),
-                    dcor = round(dcor(df_fig_complete$x, df_fig_complete$y), 2)) %>%
-  mutate(label = paste0("pCor = ", pcor, "\ndCor = ", dcor))
-
-fig_scatter = df_fig %>%
-  ggplot(aes(x = x, y = y)) +
-  labs(x = "Staphylococcaceae", y = "Ruminococcaceae") +
-  geom_point() +
-  geom_label(data = df_ann, aes(x = x, y = y, label = label),
-             color = "orange", size = 4, fontface = "bold") +
-  geom_smooth(method = "loess", formula = "y ~ x", se = FALSE, color = "red") +
-  geom_smooth(method = "lm", formula = "y ~ x", se = FALSE, color = "blue", linetype = "dashed") +
-  theme_bw() +
-  theme(axis.title.x = element_text(face = "italic"),
-        axis.title.y = element_text(face = "italic"))
-
-```
-
-## 6.3 Nonlinearity Examples {.tabset}
-
-### Pasteurellaceae vs. Bacteroidaceae at day 365
-
-```{r}
-df_eg1 = data.frame(x = family_linear_time_365$y_hat["Pasteurellaceae", ],
-                    y = family_linear_time_365$y_hat["Bacteroidaceae", ])
-df_eg1 = df_eg1[complete.cases(df_eg1), ]
-
-rlm1 = lmrob(y ~ x, data = df_eg1, control = lmrob.control(max.it = 100))
-rlm2 = lmrob(y ~ poly(x, 2), data = df_eg1, control = lmrob.control(max.it = 100))
+rlm1 = lmrob(y ~ x, data = df_eg, control = lmrob.control(max.it = 100))
+rlm2 = lmrob(y ~ poly(x, 4), data = df_eg, control = lmrob.control(max.it = 100))
 r_squared1 = round(summary(rlm1)$adj.r.squared, 2)
 r_squared2 = round(summary(rlm2)$adj.r.squared, 2)
 
-df_ann2 = data.frame(x = c(0.75, 0.75), y = c(1.75, 1.25)) %>%
+df_ann = data.frame(x = c(0.75, 0.75), y = c(1.75, 1.25)) %>%
   mutate(label = c(paste0("R^{2}~(linear) == ",  r_squared1),
                    paste0("R^{2}~(Poly) == ",  r_squared2)))
 
-scatter_eg1 = df_eg1 %>%
+scatter_eg = df_eg %>%
   ggplot(aes(x = x, y = y)) +
   geom_point(size = 4) +
-  geom_text(data = df_ann2, aes(x = x, y = y, label = label), hjust = 0, 
-             color = "orange", size = 4, fontface = "bold", parse = TRUE) +
-  labs(x = "Enterobacteriaceae", y = "Ruminococcaceae") +
-  geom_smooth(method = "lm", formula = y ~ poly(x, 2), se = FALSE, linetype = "dashed") + 
-  theme_bw()
-  
-scatter_eg1
-ggsave(plot = scatter_eg1, "../images/supp/supp_nonlinear_example1.pdf", height = 5, width = 6.25)
-ggsave(plot = scatter_eg1, "../images/supp/supp_nonlinear_example1.jpeg", height = 5, width = 6.25, dpi = 300)
-```
-
-### Enterobacteriaceae vs. Ruminococcaceae at day 120
-
-```{r}
-df_eg2 = data.frame(x = family_linear_time_120$y_hat["Enterobacteriaceae", ],
-                    y = family_linear_time_120$y_hat["Ruminococcaceae", ])
-df_eg2 = df_eg2[complete.cases(df_eg2), ]
-
-rlm1 = lmrob(y ~ x, data = df_eg2, control = lmrob.control(max.it = 100))
-rlm2 = lmrob(y ~ poly(x, 4), data = df_eg2, control = lmrob.control(max.it = 100))
-r_squared1 = round(summary(rlm1)$adj.r.squared, 2)
-r_squared2 = round(summary(rlm2)$adj.r.squared, 2)
-
-df_ann2 = data.frame(x = c(0.75, 0.75), y = c(1.75, 1.25)) %>%
-  mutate(label = c(paste0("R^{2}~(linear) == ",  r_squared1),
-                   paste0("R^{2}~(Poly) == ",  r_squared2)))
-
-scatter_eg2 = df_eg2 %>%
-  ggplot(aes(x = x, y = y)) +
-  geom_point(size = 4) +
-  geom_text(data = df_ann2, aes(x = x, y = y, label = label), hjust = 0, 
-             color = "orange", size = 4, fontface = "bold", parse = TRUE) +
+  geom_text(data = df_ann, aes(x = x, y = y, label = label), hjust = 0, 
+            color = "orange", size = 4, fontface = "bold", parse = TRUE) +
   labs(x = "Enterobacteriaceae", y = "Ruminococcaceae") +
   geom_smooth(method = "lm", formula = y ~ poly(x, 4), se = FALSE, linetype = "dashed") + 
   theme_bw()
   
-scatter_eg2
-ggsave(plot = scatter_eg2, "../images/supp/supp_nonlinear_example2.pdf", height = 5, width = 6.25)
-ggsave(plot = scatter_eg2, "../images/supp/supp_nonlinear_example2.jpeg", height = 5, width = 6.25, dpi = 300)
+scatter_eg
+ggsave(plot = scatter_eg, "../images/supp/supp_nonlinear_example2.pdf", height = 5, width = 6.25)
+ggsave(plot = scatter_eg, "../images/supp/supp_nonlinear_example2.jpeg", height = 5, width = 6.25, dpi = 300)
 ```
 
-# 7. SparCC results
+# 5. SparCC results {.tabset}
 
-```{r, fig.height=6, fig.width=13}
-top_phylum = c("Acidobacteria", "Actinobacteria", "Bacteroidetes", "Cyanobacteria", "Firmicutes", 
-               "Fusobacteria", "Proteobacteria", "Tenericutes", "TM7", "Verrucomicrobia")
-top_family = c("Bacteroidaceae", "Bifidobacteriaceae", "Clostridiaceae", "Enterobacteriaceae", "Fusobacteriaceae",
-               "Lachnospiraceae", "Moraxellaceae", "Pasteurellaceae", "Ruminococcaceae", "Staphylococcaceae")
+## Run SparCC
 
-sparcc_obj = read_rds("../data/nomic/sparcc/sparcc_obj.rds")
-R_hat_sparcc30 = sparcc_obj$day30
-R_hat_sparcc120 = sparcc_obj$day120
-R_hat_sparcc365 = sparcc_obj$day365
+```{r, eval=FALSE}
+raw_30 = abundances(family_data30)
+rownames(raw_30) = paste0("data1 - ", rownames(raw_30))
 
-# Day 30
-R_hat_sparcc30 = hard_thresh(R_hat_sparcc30, 0.3)
-col_ind = match(sort(top_family), colnames(R_hat_sparcc30))
-R_hat_sparcc30 = R_hat_sparcc30[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+raw_120 = abundances(family_data120)
+rownames(raw_120) = paste0("data2 - ", rownames(raw_120))
 
-# Day 120
-R_hat_sparcc120 = hard_thresh(R_hat_sparcc120, 0.3)
-col_ind = match(sort(top_family), colnames(R_hat_sparcc120))
-R_hat_sparcc120 = R_hat_sparcc120[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+raw_365 = abundances(family_data365)
+rownames(raw_365) = paste0("data3 - ", rownames(raw_365))
 
-# Day 365
-R_hat_sparcc365 = hard_thresh(R_hat_sparcc365, 0.3)
-col_ind = match(sort(top_family), colnames(R_hat_sparcc365))
-R_hat_sparcc365 = R_hat_sparcc365[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+raw_30_120 = data.frame(raw_30, check.names = FALSE) %>%
+  bind_rows(data.frame(raw_120, check.names = FALSE)) %>%
+  select_if(~ !any(is.na(.)))
 
-df_sparcc = data.frame(get_upper_tri(R_hat_sparcc30)) %>%
+raw_30_365 = data.frame(raw_30, check.names = FALSE) %>%
+  bind_rows(data.frame(raw_365, check.names = FALSE)) %>%
+  select_if(~ !any(is.na(.)))
+
+raw_120_365 = data.frame(raw_120, check.names = FALSE) %>%
+  bind_rows(data.frame(raw_365, check.names = FALSE)) %>%
+  select_if(~ !any(is.na(.)))
+
+# SparCC cannot handle missing values, so we have to calculate the correlation
+# matrices separately 
+set.seed(123)
+R_hat_sparcc11 = sparcc(t(raw_30))$Cor
+R_hat_sparcc22 = sparcc(t(raw_120))$Cor
+R_hat_sparcc33 = sparcc(t(raw_365))$Cor
+
+R_hat_sparcc12 = sparcc(t(raw_30_120))$Cor
+R_hat_sparcc12 = R_hat_sparcc12[seq_len(nrow(raw_30)), 
+                                seq(from = nrow(raw_30) + 1, 
+                                    to = nrow(raw_30_120))]
+R_hat_sparcc13 = sparcc(t(raw_30_365))$Cor
+R_hat_sparcc13 = R_hat_sparcc13[seq_len(nrow(raw_30)), 
+                                seq(from = nrow(raw_30) + 1, 
+                                    to = nrow(raw_30_365))]
+R_hat_sparcc23 = sparcc(t(raw_120_365))$Cor
+R_hat_sparcc23 = R_hat_sparcc23[seq_len(nrow(raw_120)), 
+                                seq(from = nrow(raw_120) + 1, 
+                                    to = nrow(raw_120_365))]
+
+R_hat_sparcc = matrix(NA, 
+                      nrow = nrow(raw_30) + nrow(raw_120) + nrow(raw_365),
+                      ncol = nrow(raw_30) + nrow(raw_120) + nrow(raw_365))
+R_hat_sparcc[seq_len(nrow(raw_30)), seq_len(nrow(raw_30))] = R_hat_sparcc11
+R_hat_sparcc[seq_len(nrow(raw_30)), 
+             seq(from = nrow(raw_30) + 1, 
+                 to = nrow(raw_30) + nrow(raw_120))] = R_hat_sparcc12
+R_hat_sparcc[seq_len(nrow(raw_30)), 
+             seq(from = nrow(raw_30) + nrow(raw_120) + 1, 
+                 to = nrow(raw_30) + nrow(raw_120) + nrow(raw_365))] = R_hat_sparcc13
+R_hat_sparcc[seq(from = nrow(raw_30) + 1, 
+                 to = nrow(raw_30) + nrow(raw_120)), 
+             seq(from = nrow(raw_30) + 1, 
+                 to = nrow(raw_30) + nrow(raw_120))] = R_hat_sparcc22
+R_hat_sparcc[seq(from = nrow(raw_30) + 1, 
+                 to = nrow(raw_30) + nrow(raw_120)), 
+             seq(from = nrow(raw_30) + nrow(raw_120) + 1, 
+                 to = nrow(raw_30) + nrow(raw_120) + nrow(raw_365))] = R_hat_sparcc23
+R_hat_sparcc[seq(from = nrow(raw_30) + nrow(raw_120) + 1, 
+                 to = nrow(raw_30) + nrow(raw_120) + nrow(raw_365)), 
+             seq(from = nrow(raw_30) + nrow(raw_120) + 1, 
+                 to = nrow(raw_30) + nrow(raw_120) + nrow(raw_365))] = R_hat_sparcc33
+R_hat_sparcc[lower.tri(R_hat_sparcc)] = R_hat_sparcc[upper.tri(R_hat_sparcc)]
+
+dimnames(R_hat_sparcc) = list(c(rownames(raw_30), rownames(raw_120), rownames(raw_365)), 
+                              c(rownames(raw_30), rownames(raw_120), rownames(raw_365)))
+
+saveRDS(R_hat_sparcc, file = "../data/nomic/sparcc/R_hat_sparcc.rds")
+```
+
+## Visualization
+
+```{r, fig.height=10, fig.width=13}
+R_hat_sparcc = read_rds("../data/nomic/sparcc/R_hat_sparcc.rds")
+R_hat_sparcc = hard_thresh(R_hat_sparcc, 0.3)
+col_ind = match(family_level, colnames(R_hat_sparcc))
+R_hat_sparcc = R_hat_sparcc[col_ind[!is.na(col_ind)], col_ind[!is.na(col_ind)]]
+
+df_sparcc = data.frame(get_upper_tri(R_hat_sparcc)) %>%
   rownames_to_column("var1") %>%
   pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
-  mutate(day = "Day 30") %>%
-  bind_rows(
-    data.frame(get_upper_tri(R_hat_sparcc120)) %>%
-    rownames_to_column("var1") %>%
-    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
-    mutate(day = "Day 120")
-  ) %>%
-  bind_rows(
-    data.frame(get_upper_tri(R_hat_sparcc365)) %>%
-    rownames_to_column("var1") %>%
-    pivot_longer(cols = -var1, names_to = "var2", values_to = "value") %>%
-    mutate(day = "Day 365")
-  ) %>%
+  mutate(var2 = gsub("\\...", " - ", var2)) %>%
   filter(!is.na(value)) %>%
   mutate(value = round(value, 2))
 
-fam_level = sort(union(df_sparcc$var1, df_sparcc$var2))
-df_sparcc$var1 = factor(df_sparcc$var1, levels = fam_level)
-df_sparcc$var2 = factor(df_sparcc$var2, levels = fam_level)
-df_sparcc$day = factor(df_sparcc$day, levels = c("Day 30", "Day 120", "Day 365"))
+family_level = sort(union(df_sparcc$var1, df_sparcc$var2))
+family_label = sapply(family_level, function(x) strsplit(x, " - ")[[1]][2])
+txt_color = case_when(grepl("data1", family_level) ~ "#1B9E77",
+                      grepl("data2", family_level) ~ "#D95F02",
+                      TRUE ~ "#7570B3")
+df_sparcc$var1 = factor(df_sparcc$var1, levels = family_level)
+df_sparcc$var2 = factor(df_sparcc$var2, levels = family_level)
 
-p_sparcc_corr = df_sparcc %>%
+p_sparcc = df_sparcc %>%
   ggplot(aes(var2, var1, fill = value)) +
   geom_tile(color = "black") +
   scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey",
                        midpoint = 0, limit = c(-1,1), space = "Lab", 
                        name = NULL) +
-  scale_x_discrete(drop = FALSE) +
-  scale_y_discrete(drop = FALSE) +
-  facet_grid(.~day) +
+  scale_x_discrete(drop = FALSE, labels = family_label) +
+  scale_y_discrete(drop = FALSE, labels = family_label) +
   geom_text(aes(var2, var1, label = value), color = "black", size = 4) +
   labs(x = NULL, y = NULL, title = NULL) +
-  guides(fill = guide_colorbar(barwidth = 7, barheight = 1, 
-                               title.position = "top", title.hjust = 0.5)) +
+  guides(fill = guide_colorbar(barwidth = 1, barheight = 7, 
+                               title.position = "right")) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, face = "italic"),
-        axis.text.y = element_text(size = 12, face = "italic"),
+  geom_vline(xintercept = c(8.5, 15.5), color = "blue", linetype = "dashed") +
+  geom_hline(yintercept = c(8.5, 15.5), color = "blue", linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
+                                   face = "italic", color = txt_color),
+        axis.text.y = element_text(size = 12, face = "italic", color = txt_color),
         strip.text.x = element_text(size = 14),
         strip.text.y = element_text(size = 14),
         legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 15),
         panel.grid.major = element_blank(),
-        axis.ticks = element_blank(),
-        legend.position = "top") +
+        axis.ticks = element_blank()) +
   coord_fixed()
-
-p_sparcc_corr
-ggsave(plot = p_sparcc_corr, "../images/supp/supp_nomic_sparcc.pdf", height = 6, width = 13)
-ggsave(plot = p_sparcc_corr, "../images/supp/supp_nomic_sparcc.jpeg", height = 6, width = 13, dpi = 300)
+p_sparcc
+ggsave(plot = p_sparcc, "../images/supp/supp_nomic_sparcc.pdf", height = 10, width = 13)
+ggsave(plot = p_sparcc, "../images/supp/supp_nomic_sparcc.jpeg", height = 10, width = 13, dpi = 300)
 ```
 
 # Session information
@@ -1310,12 +966,3 @@ ggsave(plot = p_sparcc_corr, "../images/supp/supp_nomic_sparcc.jpeg", height = 6
 ```{r, message = FALSE, warning = FALSE, comment = NA}
 sessionInfo()
 ```
-
-
-
-
-
-
-
-
-

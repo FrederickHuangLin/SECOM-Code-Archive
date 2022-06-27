@@ -1,2 +1,0 @@
-"0","ggsave(plot = scatter_eg1, ""../images/supp/supp_nonlinear_example1.pdf"", height = 5, width = 6.25)"
-"0","ggsave(plot = scatter_eg1, ""../images/supp/supp_nonlinear_example1.jpeg"", height = 5, width = 6.25, dpi = 300)"

@@ -1,2 +1,0 @@
-"0","ggsave(plot = p_pseudo, ""../images/supp/supp_pseudo.pdf"", height = 10, width = 12)   "
-"0","ggsave(plot = p_pseudo, ""../images/supp/supp_pseudo.jpeg"", height = 10, width = 12, dpi = 300)"

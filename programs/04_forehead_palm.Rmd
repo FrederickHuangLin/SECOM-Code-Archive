@@ -20,13 +20,12 @@ options(qwraps2_markup = "markdown",
 library(biomformat)
 library(tidyverse)
 library(microbiome)
+library(ANCOMBC)
 library(magrittr)
 library(qwraps2)
 library(ggpubr)
 library(compositions)
 library(SpiecEasi)
-
-source("../programs/00_secom.R")
 ```
 
 ```{r helper}
@@ -337,17 +336,19 @@ p_lib2
 ```{r}
 pseqs = list(forehead = c(forehead_otu_data, forehead_genus_data2),
              palm = c(palm_otu_data, palm_genus_data2))
-pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
-wins_quant = c(0, 1); method = "pearson"; soft = FALSE; thresh_len = 20
-n_cv = 10; seed = 123; thresh_hard = 0.3; max_p_linear = 0.001; n_cl = 5
+pseudo = 0; prv_cut = 0.5; lib_cut = 1000; corr_cut = 0.5
+wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
+n_cv = 10; thresh_hard = 0; max_p_linear = 0.001; n_cl = 5
 
-res_linear = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+set.seed(123)
+res_linear = secom_linear(pseqs, pseudo, prv_cut, lib_cut, corr_cut, 
                           wins_quant, method, soft, thresh_len, n_cv, 
-                          seed, thresh_hard, max_p_linear, n_cl)
+                          thresh_hard, max_p_linear, n_cl)
 
-R = 1000; seed = 123; max_p_dist = 0.001
-res_dist = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
-                      wins_quant, R, seed, max_p_dist, n_cl)
+R = 2000; max_p_dist = 0.001
+set.seed(123)
+res_dist = secom_dist(pseqs, pseudo, prv_cut, lib_cut, corr_cut, 
+                      wins_quant, R, thresh_hard, max_p_dist, n_cl)
 
 # Data organization
 # Linear relationships
@@ -408,6 +409,8 @@ heat_secom = df_secom %>%
   labs(x = NULL, y = NULL, title = "Forehead and Palm") +
   guides(fill = guide_colorbar(barwidth = 1, barheight = 7, 
                                title.position = "right")) +
+  geom_vline(xintercept = 5.5, color = "blue", linetype = "dashed") +
+  geom_hline(yintercept = 5.5, color = "blue", linetype = "dashed") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
                                    face = "italic", color = txt_color),
@@ -425,17 +428,19 @@ heat_secom = df_secom %>%
 
 ```{r}
 pseqs = list(c(forehead_otu_data, forehead_genus_data2))
-pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
-wins_quant = c(0, 1); method = "pearson"; soft = FALSE; thresh_len = 20
-n_cv = 10; seed = 123; thresh_hard = 0.3; max_p_linear = 0.001; n_cl = 5
+pseudo = 0; prv_cut = 0.5; lib_cut = 1000; corr_cut = 0.5
+wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
+n_cv = 10; thresh_hard = 0; max_p_linear = 0.001; n_cl = 2
 
-res_linear1 = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+set.seed(123)
+res_linear1 = secom_linear(pseqs, pseudo, prv_cut, lib_cut, corr_cut, 
                            wins_quant, method, soft, thresh_len, n_cv, 
-                           seed, thresh_hard, max_p_linear, n_cl)
+                           thresh_hard, max_p_linear, n_cl)
 
-R = 1000; seed = 123; max_p_dist = 0.001
-res_dist1 = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
-                       wins_quant, R, seed, max_p_dist, n_cl)
+R = 1000; max_p_dist = 0.001
+set.seed(123)
+res_dist1 = secom_dist(pseqs, pseudo, prv_cut, lib_cut, corr_cut, 
+                       wins_quant, R, thresh_hard, max_p_dist, n_cl)
 
 # Data organization
 # Linear relationships
@@ -510,17 +515,19 @@ heat_secom1 = df_secom1 %>%
 
 ```{r}
 pseqs = list(c(palm_otu_data, palm_genus_data2))
-pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
-wins_quant = c(0, 1); method = "pearson"; soft = FALSE; thresh_len = 20
-n_cv = 10; seed = 123; thresh_hard = 0.3; max_p_linear = 0.001; n_cl = 5
+pseudo = 0; prv_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
+wins_quant = c(0.05, 0.95); method = "pearson"; soft = FALSE; thresh_len = 20
+n_cv = 10; thresh_hard = 0; max_p_linear = 0.001; n_cl = 2
 
-res_linear2 = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+set.seed(123)
+res_linear2 = secom_linear(pseqs, pseudo, prv_cut, lib_cut, corr_cut, 
                            wins_quant, method, soft, thresh_len, n_cv, 
-                           seed, thresh_hard, max_p_linear, n_cl)
+                           thresh_hard, max_p_linear, n_cl)
 
-R = 1000; seed = 123; max_p_dist = 0.001
-res_dist2 = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
-                       wins_quant, R, seed, max_p_dist, n_cl)
+R = 1000; max_p_dist = 0.001
+set.seed(123)
+res_dist2 = secom_dist(pseqs, pseudo, prv_cut, lib_cut, corr_cut, 
+                       wins_quant, R, thresh_hard, max_p_dist, n_cl)
 
 # Data organization
 # Linear relationships
@@ -657,6 +664,8 @@ heat_sample = df_sample %>%
   labs(x = NULL, y = NULL, title = "Forehead and Palm") +
   guides(fill = guide_colorbar(barwidth = 1, barheight = 7, 
                                title.position = "right")) +
+  geom_vline(xintercept = 5.5, color = "blue", linetype = "dashed") +
+  geom_hline(yintercept = 5.5, color = "blue", linetype = "dashed") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
                                    face = "italic", color = txt_color),
@@ -722,6 +731,8 @@ heat_prop = df_prop %>%
   labs(x = NULL, y = NULL, title = "Forehead and Palm") +
   guides(fill = guide_colorbar(barwidth = 1, barheight = 7, 
                                title.position = "right")) +
+  geom_vline(xintercept = 5.5, color = "blue", linetype = "dashed") +
+  geom_hline(yintercept = 5.5, color = "blue", linetype = "dashed") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
                                    face = "italic", color = txt_color),
@@ -895,6 +906,8 @@ heat_sparcc = df_sparcc %>%
   labs(x = NULL, y = NULL, title = "Forehead and Palm") +
   guides(fill = guide_colorbar(barwidth = 1, barheight = 7, 
                                title.position = "right")) +
+  geom_vline(xintercept = 5.5, color = "blue", linetype = "dashed") +
+  geom_hline(yintercept = 5.5, color = "blue", linetype = "dashed") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, 
                                    face = "italic", color = txt_color),
@@ -1051,6 +1064,8 @@ heat_se = df_se %>%
   labs(x = NULL, y = NULL, title = "Forehead and Palm") +
   guides(fill = guide_colorbar(barwidth = 1, barheight = 7, 
                                title.position = "right")) +
+  geom_vline(xintercept = 5.5, color = "blue", linetype = "dashed") +
+  geom_hline(yintercept = 5.5, color = "blue", linetype = "dashed") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1, face = "italic",
                                    color = txt_color),

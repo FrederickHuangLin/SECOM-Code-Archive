@@ -5,8 +5,9 @@ if(length(pkg_new)) install.packages(pkg_new)
 if (!requireNamespace("BiocManager", quietly = TRUE))
   install.packages("BiocManager")
 
-if (!"microbiome" %in% installed.packages()[, "Package"])
-  BiocManager::install("microbiome")
+pkg_list = c("microbiome", "ANCOMBC")
+pkg_new = pkg_list[!(pkg_list %in% installed.packages()[, "Package"])]
+if(length(pkg_new)) BiocManager::install(pkg_new)
 
 library(doParallel)
 library(doRNG)
@@ -16,8 +17,7 @@ library(energy)
 library(readr)
 library(tidyverse)
 library(microbiome)
-
-source("programs/00_secom.R")
+library(ANCOMBC)
 
 cor2cov = function(R, std) {
   Sigma = outer(std, std) * R
@@ -119,16 +119,18 @@ res_sim = foreach(i = simparams_list, .combine = rbind, .verbose = TRUE, .packag
   otu_data = phyloseq(OTU, META)
   
   pseqs = list(c(otu_data, otu_data))
-  pseudo = 0; zero_cut = 0.5; corr_cut = 0.5; lib_cut = 1000
+  pseudo = 0; prv_cut = 0.5; lib_cut = 1000; corr_cut = 0.5
   wins_quant = c(0, 1); method = "pearson"; soft = FALSE; thresh_len = 20
-  n_cv = 10; seed = 123; thresh_hard = 0.3; max_p = 0.001; n_cl = 1
+  n_cv = 10; thresh_hard = 0; max_p = 0.001; n_cl = 1
   
-  res_linear = secom_linear(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
+  set.seed(123)
+  res_linear = secom_linear(pseqs, pseudo, prv_cut, lib_cut, corr_cut, 
                             wins_quant, method, soft, thresh_len, n_cv, 
-                            seed, thresh_hard, max_p, n_cl)
+                            thresh_hard, max_p, n_cl)
   R = 1000; max_p = 0.001
-  res_dist = secom_dist(pseqs, pseudo, zero_cut, corr_cut, lib_cut, 
-                        wins_quant, R, seed, max_p, n_cl)
+  set.seed(123)
+  res_dist = secom_dist(pseqs, pseudo, prv_cut, lib_cut, corr_cut, 
+                        wins_quant, R, thresh_hard, max_p, n_cl)
   
   taxa_keep = rownames(res_linear$corr)
   pos_idx = match(taxa_keep, taxa_id)

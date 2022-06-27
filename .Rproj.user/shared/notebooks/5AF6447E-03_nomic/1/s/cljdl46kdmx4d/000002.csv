@@ -1,8 +1,0 @@
-"0","core_phylum30 = subset_taxa(phylum_data30, phylum %in% top_phylum)
-core_phylum120 = subset_taxa(phylum_data120, phylum %in% top_phylum)
-core_phylum365 = subset_taxa(phylum_data365, phylum %in% top_phylum)
-qc_phylum$phylum = taxa_names(core_phylum30)
-"
-"2","Error in qc_phylum$phylum = taxa_names(core_phylum30) : 
-  object 'qc_phylum' not found
-"

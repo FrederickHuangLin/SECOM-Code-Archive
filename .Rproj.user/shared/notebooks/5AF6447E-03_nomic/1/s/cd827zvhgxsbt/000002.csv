@@ -1,6 +1,0 @@
-"0","# The Nomic data are not publicly available"
-"0",""
-"0","# Metadata"
-"0","meta_data = read_csv(""../data/nomic/nomic_meta.csv"")"
-"2","Error: '../data/nomic/nomic_meta.csv' does not exist in current working directory ('G:/My Drive/Methodological Research/03_secom/SECOM-Code-Archive/programs').
-"

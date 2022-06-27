@@ -1,6 +1,0 @@
-"0","p_dense_secom2 = p_dens(res_dist$dcorr_p)"
-"0","p_dense_secom2 = p_dense_secom2 + "
-"0","  labs(title = ""SECOM"") +"
-"0","  theme(plot.title = element_text(hjust = 0.5))"
-"0",""
-"0","ggplotly(p_dense_secom2)"

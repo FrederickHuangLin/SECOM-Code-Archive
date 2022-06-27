@@ -1,7 +1,0 @@
-"0","p_pseudo = ggarrange(p_pseudo1, p_pseudo2, nrow = 2, labels = c(""a"", ""b""))
-"
-"2","`geom_smooth()` using formula 'y ~ x'
-"
-"2","`geom_smooth()` using formula 'y ~ x'
-"
-"0","p_pseudo"
