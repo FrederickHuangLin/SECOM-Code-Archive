@@ -676,8 +676,6 @@ heat_sample = df_sample %>%
         axis.ticks = element_blank()) +
   coord_fixed()
 heat_sample
-ggsave(plot = heat_sample, "../images/supp/supp_body_sites_sample.pdf", height = 6, width = 6)
-ggsave(plot = heat_sample, "../images/supp/supp_body_sites_sample.jpeg", height = 6, width = 6, dpi = 300)
 ```
 
 ## 4.2 Proportionality {.tabset}

@@ -794,9 +794,9 @@ p_abn = p_abn +
 p_combine = ggarrange(p_abn, p_rel, nrow = 2,
                       heights = c(1, 1.5), labels = c("a", "b"))
 
-ggsave(plot = p_combine, "../images/supp/supp_nomic_count_family.pdf", 
+ggsave(plot = p_combine, "../images/main/nomic_count_family.pdf", 
        height = 8, width = 10)   
-ggsave(plot = p_combine, "../images/supp/supp_nomic_count_family.jpeg", 
+ggsave(plot = p_combine, "../images/main/nomic_count_family.jpeg", 
        height = 8, width = 10, dpi = 300)
 ```
 
@@ -828,8 +828,8 @@ scatter_eg = df_eg %>%
   theme_bw()
   
 scatter_eg
-ggsave(plot = scatter_eg, "../images/supp/supp_nonlinear_example2.pdf", height = 5, width = 6.25)
-ggsave(plot = scatter_eg, "../images/supp/supp_nonlinear_example2.jpeg", height = 5, width = 6.25, dpi = 300)
+ggsave(plot = scatter_eg, "../images/supp/supp_nonlinear_example.pdf", height = 5, width = 6.25)
+ggsave(plot = scatter_eg, "../images/supp/supp_nonlinear_example.jpeg", height = 5, width = 6.25, dpi = 300)
 ```
 
 # 5. SparCC results {.tabset}
