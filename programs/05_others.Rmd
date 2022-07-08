@@ -612,45 +612,35 @@ res1 = read_csv("../outputs/others/cca_vs_impute_uncorr.csv")
 res1$S = factor(res1$S, levels = c("0.1", "0.05", "0.02", "0.01", "0.005"))
 
 df_fig1 = res1 %>%
-  group_by(S) %>%
-  summarise(r1 = mean(r_cca, na.rm = TRUE),
-            std1 = sd(r_cca, na.rm = TRUE),
-            r2 = mean(r_mice, na.rm = TRUE),
-            std2 = sd(r_mice, na.rm = TRUE),
-            r3 = mean(r_gbm, na.rm = TRUE),
-            std3 = sd(r_gbm, na.rm = TRUE))
-
-df_fig1 = df_fig1 %>%
-  select(-contains(c("2", "3"))) %>%
-  rename(r = r1, std = std1) %>%
-  mutate(type = "CCA") %>%
-  bind_rows(
-    df_fig1 %>%
-      select(-contains(c("1", "3"))) %>%
-      rename(r = r2, std = std2) %>%
-      mutate(type = "MICE")
-  ) %>%
-  bind_rows(
-    df_fig1 %>%
-      select(-contains(c("1", "2"))) %>%
-      rename(r = r3, std = std3) %>%
-      mutate(type = "GBM")
-  ) %>%
-  mutate_if(is.numeric, function(x) round(x, 3))
+  pivot_longer(cols = r_cca:r_gbm, names_to = "measure", values_to = "value") %>%
+  mutate(
+    type = case_when(
+      measure == "r_cca" ~ "CCA",
+      measure == "r_mice" ~ "MICE",
+      TRUE ~ "GBM"
+    )
+  )
 
 p_impute1 = df_fig1 %>%
-  ggplot(aes(x = S, y = r, fill = type)) +
-  geom_bar(stat = "identity", color = "black", 
-           position = position_dodge()) +
-  geom_errorbar(aes(ymin = r - std, ymax = r + std), width = .2,
-                position = position_dodge(.9)) +
+  ggplot(aes(x = S, y = value, fill = type)) +
+  stat_summary(fun = mean, geom = "bar", position = "dodge", color = "black") + 
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), color = "black",
+               geom = "errorbar", width = .3, position = position_dodge(.9)) +
+  geom_point(aes(x = S), size = .1, alpha = .3, 
+             position = position_jitterdodge(jitter.width = .2, dodge.width = .9)) +
+  scale_fill_npg(name = NULL) +
+  guides(fill = guide_legend(override.aes = list(shape = NA))) +
   labs(x = "Sampling fraction", y = "Correlation estimate", 
        title = "Bias of Estimating Zero Correlation Coefficients") +
-  scale_fill_npg(name = NULL) +
   theme_bw() +
   theme(plot.title = element_text(hjust = 0.5))
 
-datatable(df_fig1)
+df_summ1 = df_fig1 %>%
+  group_by(type, S) %>%
+  summarise(r = mean(value, na.rm = TRUE),
+            std = sd(value, na.rm = TRUE)) %>%
+  mutate_if(is.numeric, function(x) round(x, 3))
+datatable(df_summ1)
 ```
 
 ### Correlated pairs
@@ -750,56 +740,47 @@ res2 = read_csv("../outputs/others/cca_vs_impute_corr.csv")
 res2$S = factor(res2$S, levels = c("0.1", "0.05", "0.02", "0.01", "0.005"))
 
 df_fig2 = res2 %>%
-  group_by(S) %>%
-  summarise(r1 = mean(r_cca, na.rm = TRUE),
-            std1 = sd(r_cca, na.rm = TRUE),
-            r2 = mean(r_mice, na.rm = TRUE),
-            std2 = sd(r_mice, na.rm = TRUE),
-            r3 = mean(r_gbm, na.rm = TRUE),
-            std3 = sd(r_gbm, na.rm = TRUE))
-
-df_fig2 = df_fig2 %>%
-  select(-contains(c("2", "3"))) %>%
-  rename(r = r1, std = std1) %>%
-  mutate(type = "CCA") %>%
-  bind_rows(
-    df_fig2 %>%
-      select(-contains(c("1", "3"))) %>%
-      rename(r = r2, std = std2) %>%
-      mutate(type = "MICE")
-  ) %>%
-  bind_rows(
-    df_fig2 %>%
-      select(-contains(c("1", "2"))) %>%
-      rename(r = r3, std = std3) %>%
-      mutate(type = "GBM")
-  ) %>%
-  mutate_if(is.numeric, function(x) round(x, 3))
+  pivot_longer(cols = r_cca:r_gbm, names_to = "measure", values_to = "value") %>%
+  mutate(
+    type = case_when(
+      measure == "r_cca" ~ "CCA",
+      measure == "r_mice" ~ "MICE",
+      TRUE ~ "GBM"
+    )
+  )
 
 p_impute2 = df_fig2 %>%
-  ggplot(aes(x = S, y = r, fill = type)) +
-  geom_bar(stat = "identity", color = "black", 
-           position = position_dodge()) +
-  geom_errorbar(aes(ymin = r - std, ymax = r + std), width = .2,
-                position = position_dodge(.9)) +
+  ggplot(aes(x = S, y = value, fill = type)) +
+  stat_summary(fun = mean, geom = "bar", position = "dodge", color = "black") + 
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), color = "black",
+               geom = "errorbar", width = .3, position = position_dodge(.9)) +
+  geom_point(aes(x = S), size = .1, alpha = .3, 
+             position = position_jitterdodge(jitter.width = .2, dodge.width = .9)) +
+  scale_fill_npg(name = NULL) +
+  guides(fill = guide_legend(override.aes = list(shape = NA))) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 0.9, 0.2)) +
   geom_hline(yintercept = 0.8, linetype = "dashed") +
   labs(x = "Sampling fraction", y = "Correlation estimate", 
        title = "Bias of Estimating Zero Correlation Coefficients") +
-  scale_fill_npg(name = NULL) +
   theme_bw() +
   theme(plot.title = element_text(hjust = 0.5))
 
-datatable(df_fig2)
+df_summ2 = df_fig2 %>%
+  group_by(type, S) %>%
+  summarise(r = mean(value, na.rm = TRUE),
+            std = sd(value, na.rm = TRUE)) %>%
+  mutate_if(is.numeric, function(x) round(x, 3))
+datatable(df_summ2)
 ```
 
 ### Output
 
-```{r, fig.height=10, fig.width=12}
+```{r, fig.height=8, fig.width=10}
 p_impute = ggarrange(p_impute1, p_impute2, nrow = 2, labels = c("a", "b"),
                      common.legend = TRUE, legend = "right")
 p_impute
-ggsave(plot = p_impute, "../images/supp/supp_impute.pdf", height = 10, width = 12)   
-ggsave(plot = p_impute, "../images/supp/supp_impute.jpeg", height = 10, width = 12, dpi = 300)
+ggsave(plot = p_impute, "../images/supp/supp_impute.pdf", height = 8, width = 10)   
+ggsave(plot = p_impute, "../images/supp/supp_impute.jpeg", height = 8, width = 10, dpi = 300)
 ```
 
 # Session information

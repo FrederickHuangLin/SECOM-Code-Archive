@@ -530,10 +530,8 @@ df_linear = rbind(linear_secom1, linear_secom2, linear_secom3, linear_prop,
 # Relative norm loss
 df_linear_fig1 = df_linear %>%
   dplyr::select(rel_F, rel_S, method, setting) %>%
-  pivot_longer(cols = rel_F:rel_S, names_to = "measure", values_to = "value") %>%
-  group_by(method, setting, measure) %>%
-  summarise(measure_mean = mean(value),
-            measure_sd = sd(value))
+  pivot_longer(cols = rel_F:rel_S, names_to = "measure", values_to = "value") 
+
 df_linear_fig1$method = factor(df_linear_fig1$method, 
                                levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
                                           "SECOM (Distance)", "Proportionality", "SparCC", 
@@ -543,11 +541,14 @@ df_linear_fig1$setting = factor(df_linear_fig1$setting,
                                            "100, 200, 0.5", "100, 200, 2"))
 
 p_linear1 = df_linear_fig1 %>%
-  ggplot(aes(x = setting, y = measure_mean, fill = method)) + 
-  geom_bar(position = "dodge", stat = "identity", color = "black") +
-  geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
-                width = .2, position = position_dodge(.9)) +
+  ggplot(aes(x = setting, y = value, fill = method)) + 
+  stat_summary(fun = mean, geom = "bar", position = "dodge", color = "black") + 
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), color = "black",
+               geom = "errorbar", width = .3, position = position_dodge(.9)) +
+  geom_point(aes(x = setting), size = .1, alpha = .3, 
+             position = position_jitterdodge(jitter.width = .2, dodge.width = .9)) +
   scale_fill_nejm(name = NULL) +
+  guides(fill = guide_legend(override.aes = list(shape = NA))) +
   scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
                               "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
                               "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
@@ -562,10 +563,8 @@ p_linear1 = df_linear_fig1 %>%
 # TPR/FPR
 df_linear_fig2 = df_linear %>%
   dplyr::select(tpr, fpr, method, setting) %>%
-  pivot_longer(cols = tpr:fpr, names_to = "measure", values_to = "value") %>%
-  group_by(method, setting, measure) %>%
-  summarise(measure_mean = mean(value),
-            measure_sd = sd(value))
+  pivot_longer(cols = tpr:fpr, names_to = "measure", values_to = "value") 
+
 df_linear_fig2$method = factor(df_linear_fig2$method, 
                                levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
                                           "SECOM (Distance)", "Proportionality", "SparCC",
@@ -575,11 +574,14 @@ df_linear_fig2$setting = factor(df_linear_fig2$setting,
                                            "100, 200, 0.5", "100, 200, 2"))
 
 p_linear2 = df_linear_fig2 %>%
-  ggplot(aes(x = setting, y = measure_mean, fill = method)) + 
-  geom_bar(position = "dodge", stat = "identity", color = "black") +
-  geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
-                width = .2, position = position_dodge(.9)) +
+  ggplot(aes(x = setting, y = value, fill = method)) + 
+  stat_summary(fun = mean, geom = "bar", position = "dodge", color = "black") + 
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), color = "black",
+               geom = "errorbar", width = .3, position = position_dodge(.9)) +
+  geom_point(aes(x = setting), size = .1, alpha = .3, 
+             position = position_jitterdodge(jitter.width = .2, dodge.width = .9)) +
   scale_fill_nejm(name = NULL) +
+  guides(fill = guide_legend(override.aes = list(shape = NA))) +
   scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
                               "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
                               "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
@@ -588,9 +590,8 @@ p_linear2 = df_linear_fig2 %>%
              labeller = labeller(measure = c(tpr = "TPR", fpr = "FPR"))) +
   labs(title = "FPR/TPR", x = NULL, y = NULL) +
   theme_bw() +
-  theme(plot.title = element_text(hjust = 0.5),
+  theme(plot.title = element_text(hjust = .5),
         strip.background = element_rect(fill = "white"))
-
 
 p_linear = ggarrange(p_linear1, p_linear2, ncol = 2, nrow = 1,
                      labels = c("a", "b"), common.legend = TRUE, legend = "bottom")
@@ -608,10 +609,8 @@ df_linear = rbind(linear_secom1, linear_secom2, linear_secom3, linear_prop,
 # Relative norm loss
 df_linear_fig1 = df_linear %>%
   dplyr::select(rel_F, rel_S, method, setting) %>%
-  pivot_longer(cols = rel_F:rel_S, names_to = "measure", values_to = "value") %>%
-  group_by(method, setting, measure) %>%
-  summarise(measure_mean = mean(value),
-            measure_sd = sd(value))
+  pivot_longer(cols = rel_F:rel_S, names_to = "measure", values_to = "value") 
+
 df_linear_fig1$method = factor(df_linear_fig1$method, 
                                levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
                                           "SECOM (Distance)", "Proportionality", "SparCC", 
@@ -621,11 +620,14 @@ df_linear_fig1$setting = factor(df_linear_fig1$setting,
                                            "100, 200, 0.5", "100, 200, 2"))
 
 p_linear1 = df_linear_fig1 %>%
-  ggplot(aes(x = setting, y = measure_mean, fill = method)) + 
-  geom_bar(position = "dodge", stat = "identity", color = "black") +
-  geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
-                width = .2, position = position_dodge(.9)) +
+  ggplot(aes(x = setting, y = value, fill = method)) + 
+  stat_summary(fun = mean, geom = "bar", position = "dodge", color = "black") + 
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), color = "black",
+               geom = "errorbar", width = .3, position = position_dodge(.9)) +
+  geom_point(aes(x = setting), size = .1, alpha = .3, 
+             position = position_jitterdodge(jitter.width = .2, dodge.width = .9)) +
   scale_fill_nejm(name = NULL) +
+  guides(fill = guide_legend(override.aes = list(shape = NA))) +
   scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
                               "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
                               "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
@@ -640,10 +642,8 @@ p_linear1 = df_linear_fig1 %>%
 # TPR/FPR
 df_linear_fig2 = df_linear %>%
   dplyr::select(tpr, fpr, method, setting) %>%
-  pivot_longer(cols = tpr:fpr, names_to = "measure", values_to = "value") %>%
-  group_by(method, setting, measure) %>%
-  summarise(measure_mean = mean(value),
-            measure_sd = sd(value))
+  pivot_longer(cols = tpr:fpr, names_to = "measure", values_to = "value") 
+
 df_linear_fig2$method = factor(df_linear_fig2$method, 
                                levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
                                           "SECOM (Distance)", "Proportionality", "SparCC",
@@ -653,11 +653,14 @@ df_linear_fig2$setting = factor(df_linear_fig2$setting,
                                            "100, 200, 0.5", "100, 200, 2"))
 
 p_linear2 = df_linear_fig2 %>%
-  ggplot(aes(x = setting, y = measure_mean, fill = method)) + 
-  geom_bar(position = "dodge", stat = "identity", color = "black") +
-  geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
-                width = .2, position = position_dodge(.9)) +
+  ggplot(aes(x = setting, y = value, fill = method)) + 
+  stat_summary(fun = mean, geom = "bar", position = "dodge", color = "black") + 
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), color = "black",
+               geom = "errorbar", width = .3, position = position_dodge(.9)) +
+  geom_point(aes(x = setting), size = .1, alpha = .3, 
+             position = position_jitterdodge(jitter.width = .2, dodge.width = .9)) +
   scale_fill_nejm(name = NULL) +
+  guides(fill = guide_legend(override.aes = list(shape = NA))) +
   scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
                               "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
                               "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
@@ -1089,10 +1092,8 @@ df_nonlinear = rbind(nonlinear_secom1, nonlinear_secom2, nonlinear_secom3,
 # TPR/FPR
 df_nonlinear_fig = df_nonlinear %>%
   dplyr::select(tpr, fpr, method, setting) %>%
-  pivot_longer(cols = tpr:fpr, names_to = "measure", values_to = "value") %>%
-  group_by(method, setting, measure) %>%
-  summarise(measure_mean = mean(value),
-            measure_sd = sd(value))
+  pivot_longer(cols = tpr:fpr, names_to = "measure", values_to = "value") 
+
 df_nonlinear_fig$method = factor(df_nonlinear_fig$method, 
                                  levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
                                             "SECOM (Distance)", "Proportionality", "SparCC", 
@@ -1102,12 +1103,14 @@ df_nonlinear_fig$setting = factor(df_nonlinear_fig$setting,
                                              "100, 200, 0.5", "100, 200, 2"))
 
 p_nonlinear = df_nonlinear_fig %>%
-  ggplot(aes(x = setting, y = measure_mean, fill = method)) + 
-  geom_bar(position = "dodge", stat = "identity", color = "black") +
-  geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
-                width = .2, position = position_dodge(.9)) +
-  # brewer.pal(n = 7, name = "Dark2")
+  ggplot(aes(x = setting, y = value, fill = method)) + 
+  stat_summary(fun = mean, geom = "bar", position = "dodge", color = "black") + 
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), color = "black",
+               geom = "errorbar", width = .3, position = position_dodge(.9)) +
+  geom_point(aes(x = setting), size = .1, alpha = .3, 
+             position = position_jitterdodge(jitter.width = .2, dodge.width = .9)) +
   scale_fill_nejm(name = NULL) +
+  guides(fill = guide_legend(override.aes = list(shape = NA))) +
   scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
                               "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
                               "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
@@ -1137,10 +1140,8 @@ df_nonlinear = rbind(nonlinear_secom1, nonlinear_secom2, nonlinear_secom3,
 # TPR/FPR
 df_nonlinear_fig = df_nonlinear %>%
   dplyr::select(tpr, fpr, method, setting) %>%
-  pivot_longer(cols = tpr:fpr, names_to = "measure", values_to = "value") %>%
-  group_by(method, setting, measure) %>%
-  summarise(measure_mean = mean(value),
-            measure_sd = sd(value))
+  pivot_longer(cols = tpr:fpr, names_to = "measure", values_to = "value") 
+
 df_nonlinear_fig$method = factor(df_nonlinear_fig$method, 
                                  levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
                                             "SECOM (Distance)", "Proportionality", "SparCC", 
@@ -1150,12 +1151,14 @@ df_nonlinear_fig$setting = factor(df_nonlinear_fig$setting,
                                              "100, 200, 0.5", "100, 200, 2"))
 
 p_nonlinear = df_nonlinear_fig %>%
-  ggplot(aes(x = setting, y = measure_mean, fill = method)) + 
-  geom_bar(position = "dodge", stat = "identity", color = "black") +
-  geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
-                width = .2, position = position_dodge(.9)) +
-  # brewer.pal(n = 7, name = "Dark2")
+  ggplot(aes(x = setting, y = value, fill = method)) + 
+  stat_summary(fun = mean, geom = "bar", position = "dodge", color = "black") + 
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), color = "black",
+               geom = "errorbar", width = .3, position = position_dodge(.9)) +
+  geom_point(aes(x = setting), size = .1, alpha = .3, 
+             position = position_jitterdodge(jitter.width = .2, dodge.width = .9)) +
   scale_fill_nejm(name = NULL) +
+  guides(fill = guide_legend(override.aes = list(shape = NA))) +
   scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
                               "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
                               "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
@@ -1994,10 +1997,8 @@ df_complex = rbind(complex_secom1, complex_secom2, complex_secom3, complex_prop,
 # Relative norm loss
 df_complex_fig1 = df_complex %>%
   dplyr::select(rel_F, rel_S, method, setting) %>%
-  pivot_longer(cols = rel_F:rel_S, names_to = "measure", values_to = "value") %>%
-  group_by(method, setting, measure) %>%
-  summarise(measure_mean = mean(value),
-            measure_sd = sd(value))
+  pivot_longer(cols = rel_F:rel_S, names_to = "measure", values_to = "value") 
+
 df_complex_fig1$method = factor(df_complex_fig1$method, 
                                 levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
                                            "SECOM (Distance)", "Proportionality", "SparCC", 
@@ -2007,11 +2008,14 @@ df_complex_fig1$setting = factor(df_complex_fig1$setting,
                                            "100, 200, 0.5", "100, 200, 2"))
 
 p_complex1 = df_complex_fig1 %>%
-  ggplot(aes(x = setting, y = measure_mean, fill = method)) + 
-  geom_bar(position = "dodge", stat = "identity", color = "black") +
-  geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
-                width = .2, position = position_dodge(.9)) +
-  scale_fill_nejm(name = NULL) + 
+  ggplot(aes(x = setting, y = value, fill = method)) + 
+  stat_summary(fun = mean, geom = "bar", position = "dodge", color = "black") + 
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), color = "black",
+               geom = "errorbar", width = .3, position = position_dodge(.9)) +
+  geom_point(aes(x = setting), size = .1, alpha = .3, 
+             position = position_jitterdodge(jitter.width = .2, dodge.width = .9)) +
+  scale_fill_nejm(name = NULL) +
+  guides(fill = guide_legend(override.aes = list(shape = NA))) +
   scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
                               "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
                               "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
@@ -2026,10 +2030,8 @@ p_complex1 = df_complex_fig1 %>%
 # TPR/FPR
 df_complex_fig2 = df_complex %>%
   dplyr::select(tpr, fpr, method, setting) %>%
-  pivot_longer(cols = tpr:fpr, names_to = "measure", values_to = "value") %>%
-  group_by(method, setting, measure) %>%
-  summarise(measure_mean = mean(value),
-            measure_sd = sd(value))
+  pivot_longer(cols = tpr:fpr, names_to = "measure", values_to = "value") 
+
 df_complex_fig2$method = factor(df_complex_fig2$method, 
                                 levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
                                            "SECOM (Distance)", "Proportionality", "SparCC", 
@@ -2039,11 +2041,14 @@ df_complex_fig2$setting = factor(df_complex_fig2$setting,
                                            "100, 200, 0.5", "100, 200, 2"))
 
 p_complex2 = df_complex_fig2 %>%
-  ggplot(aes(x = setting, y = measure_mean, fill = method)) + 
-  geom_bar(position = "dodge", stat = "identity", color = "black") +
-  geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
-                width = .2, position = position_dodge(.9)) +
-  scale_fill_nejm(name = NULL) + 
+  ggplot(aes(x = setting, y = value, fill = method)) + 
+  stat_summary(fun = mean, geom = "bar", position = "dodge", color = "black") + 
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), color = "black",
+               geom = "errorbar", width = .3, position = position_dodge(.9)) +
+  geom_point(aes(x = setting), size = .1, alpha = .3, 
+             position = position_jitterdodge(jitter.width = .2, dodge.width = .9)) +
+  scale_fill_nejm(name = NULL) +
+  guides(fill = guide_legend(override.aes = list(shape = NA))) +
   scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
                               "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
                               "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
@@ -2071,10 +2076,8 @@ df_complex = rbind(complex_secom1, complex_secom2, complex_secom3, complex_prop,
 # Relative norm loss
 df_complex_fig1 = df_complex %>%
   dplyr::select(rel_F, rel_S, method, setting) %>%
-  pivot_longer(cols = rel_F:rel_S, names_to = "measure", values_to = "value") %>%
-  group_by(method, setting, measure) %>%
-  summarise(measure_mean = mean(value),
-            measure_sd = sd(value))
+  pivot_longer(cols = rel_F:rel_S, names_to = "measure", values_to = "value") 
+
 df_complex_fig1$method = factor(df_complex_fig1$method, 
                                 levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
                                            "SECOM (Distance)", "Proportionality", "SparCC", 
@@ -2084,11 +2087,14 @@ df_complex_fig1$setting = factor(df_complex_fig1$setting,
                                            "100, 200, 0.5", "100, 200, 2"))
 
 p_complex1 = df_complex_fig1 %>%
-  ggplot(aes(x = setting, y = measure_mean, fill = method)) + 
-  geom_bar(position = "dodge", stat = "identity", color = "black") +
-  geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
-                width = .2, position = position_dodge(.9)) +
-  scale_fill_nejm(name = NULL) + 
+  ggplot(aes(x = setting, y = value, fill = method)) + 
+  stat_summary(fun = mean, geom = "bar", position = "dodge", color = "black") + 
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), color = "black",
+               geom = "errorbar", width = .3, position = position_dodge(.9)) +
+  geom_point(aes(x = setting), size = .1, alpha = .3, 
+             position = position_jitterdodge(jitter.width = .2, dodge.width = .9)) +
+  scale_fill_nejm(name = NULL) +
+  guides(fill = guide_legend(override.aes = list(shape = NA))) +
   scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
                               "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
                               "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
@@ -2103,10 +2109,8 @@ p_complex1 = df_complex_fig1 %>%
 # TPR/FPR
 df_complex_fig2 = df_complex %>%
   dplyr::select(tpr, fpr, method, setting) %>%
-  pivot_longer(cols = tpr:fpr, names_to = "measure", values_to = "value") %>%
-  group_by(method, setting, measure) %>%
-  summarise(measure_mean = mean(value),
-            measure_sd = sd(value))
+  pivot_longer(cols = tpr:fpr, names_to = "measure", values_to = "value") 
+
 df_complex_fig2$method = factor(df_complex_fig2$method, 
                                 levels = c("SECOM (Pearson1)", "SECOM (Pearson2)",
                                            "SECOM (Distance)", "Proportionality", "SparCC", 
@@ -2116,11 +2120,14 @@ df_complex_fig2$setting = factor(df_complex_fig2$setting,
                                            "100, 200, 0.5", "100, 200, 2"))
 
 p_complex2 = df_complex_fig2 %>%
-  ggplot(aes(x = setting, y = measure_mean, fill = method)) + 
-  geom_bar(position = "dodge", stat = "identity", color = "black") +
-  geom_errorbar(aes(ymin = measure_mean - measure_sd, ymax = measure_mean + measure_sd), 
-                width = .2, position = position_dodge(.9)) +
-  scale_fill_nejm(name = NULL) + 
+  ggplot(aes(x = setting, y = value, fill = method)) + 
+  stat_summary(fun = mean, geom = "bar", position = "dodge", color = "black") + 
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), color = "black",
+               geom = "errorbar", width = .3, position = position_dodge(.9)) +
+  geom_point(aes(x = setting), size = .1, alpha = .3, 
+             position = position_jitterdodge(jitter.width = .2, dodge.width = .9)) +
+  scale_fill_nejm(name = NULL) +
+  guides(fill = guide_legend(override.aes = list(shape = NA))) +
   scale_x_discrete(labels = c("50, 100, 0.5" = "(n = 50, d = 100, \u03B1 = 0.5)",
                               "50, 100, 2" = "(n = 50, d = 100, \u03B1 = 2)",
                               "100, 200, 0.5" = "(n = 100, d = 200, \u03B1 = 0.5)",
